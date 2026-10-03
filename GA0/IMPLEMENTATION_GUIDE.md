@@ -147,14 +147,35 @@ Every single route from the reference repository is **100% active and supported*
 
 ### 8. Q17 — Network Game: Graph Detective
 - **Exam Question ID**: `q-network-game-detective`
-- **What it is**:
-  A game where you find the compromised account node in a transaction network.
-- **How to Use**:
-  Query the pre-computed graph analysis:
+- **What the Exam Requires**:
+  A signed **ES256 Completion JWT token** pasted into the textarea input:
+  `eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9...`
+- **Option A: Fully Automated One-Click Solver (Recommended)**:
+  Call your solver endpoint with the student's email:
   ```bash
-  curl https://tds-t3-2026-ga0-ngrok.vercel.app/t3-2026/ga0/detective-graph?week=now
+  curl -X POST https://tds-t3-2026-ga0-ngrok.vercel.app/detective-token \
+    -H "Content-Type: application/json" \
+    -d '{"email": "student@example.com"}'
   ```
-  Returns `{ "culprit": <node_id>, ... }`. Use this node ID in the network detective game to acquire your completion JWT token.
+  *(Or via GET: `https://tds-t3-2026-ga0-ngrok.vercel.app/detective-token?email=student@example.com`)*
+  
+  **The API returns:**
+  ```json
+  {
+    "email": "student@example.com",
+    "culprit": 40,
+    "path": [10, 0, 40],
+    "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZHMtbmV0d29ya...<JWT>",
+    "result": "success"
+  }
+  ```
+  👉 Copy the `"token"` value and paste it directly into the Q17 textarea!
+
+- **Option B: Query Raw Graph Analysis**:
+  ```bash
+  curl https://tds-t3-2026-ga0-ngrok.vercel.app/detective-graph?week=now
+  ```
+  Returns `{ "culprit": 40, "adj": {...}, "attrs": {...} }`. Shows the exact anomalous account and entire 120-node transaction adjacency.
 
 ---
 
