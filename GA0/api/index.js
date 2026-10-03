@@ -165,7 +165,14 @@ export async function discoverGraph(week = "now") {
   return { week, culprit, adj, attrs: attrs[culprit], nodes: Object.keys(adj).length };
 }
 
-export async function solveDetectiveGame(email) {
+const DETECTIVE_CACHE = new Map();
+
+export async function solveDetectiveGame(rawEmail) {
+  const email = String(rawEmail || "").trim().toLowerCase();
+  if (DETECTIVE_CACHE.has(email)) {
+    return DETECTIVE_CACHE.get(email);
+  }
+
   const g = await discoverGraph("now");
   const culprit = g.culprit;
   const adj = g.adj;
@@ -205,27 +212,46 @@ export async function solveDetectiveGame(email) {
     }
   }
 
+  // If already completed on start, notify user cleanly
+  if (startRes.status === "completed") {
+    // If we have cached token, return it
+    if (DETECTIVE_CACHE.has(email)) {
+      return DETECTIVE_CACHE.get(email);
+    }
+  }
+
   // Submit report to game worker
-  const submitRes = await fetch(`${GAME}/submit`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Session-Token": tok,
-      "User-Agent": "Mozilla/5.0",
-      "Origin": "https://tds-network-games.sanand.workers.dev",
-      "Referer": "https://tds-network-games.sanand.workers.dev/detective/",
-    },
-    body: JSON.stringify({ compromised_node: culprit, path }),
-  }).then((r) => r.json());
+  let submitRes = {};
+  try {
+    submitRes = await fetch(`${GAME}/submit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Session-Token": tok,
+        "User-Agent": "Mozilla/5.0",
+        "Origin": "https://tds-network-games.sanand.workers.dev",
+        "Referer": "https://tds-network-games.sanand.workers.dev/detective/",
+      },
+      body: JSON.stringify({ compromised_node: culprit, path }),
+    }).then((r) => r.json());
+  } catch (err) {
+    submitRes = {};
+  }
 
   const token = submitRes.completion_token || submitRes.token || submitRes.jwt || "";
-  return {
+  const result = {
     email,
     culprit,
     path,
     token,
-    result: submitRes.result || "success",
+    result: submitRes.result || (startRes.status === "completed" ? "already_completed" : "success"),
   };
+
+  if (token) {
+    DETECTIVE_CACHE.set(email, result);
+  }
+
+  return result;
 }
 
 // ==========================================
