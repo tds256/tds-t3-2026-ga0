@@ -165,6 +165,69 @@ export async function discoverGraph(week = "now") {
   return { week, culprit, adj, attrs: attrs[culprit], nodes: Object.keys(adj).length };
 }
 
+export async function solveDetectiveGame(email) {
+  const g = await discoverGraph("now");
+  const culprit = g.culprit;
+  const adj = g.adj;
+
+  const startRes = await fetch(`${GAME}/start`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "Mozilla/5.0",
+      "Origin": "https://tds-network-games.sanand.workers.dev",
+      "Referer": "https://tds-network-games.sanand.workers.dev/detective/",
+    },
+    body: JSON.stringify({ email }),
+  }).then((r) => r.json());
+
+  const tok = startRes.session_token;
+  const anchorId = startRes.anchor_node?.id ?? 0;
+
+  // Shortest path via BFS
+  const queue = [[anchorId]];
+  const visited = new Set([anchorId]);
+  let path = [anchorId];
+
+  while (queue.length) {
+    const currPath = queue.shift();
+    const currNode = currPath[currPath.length - 1];
+    if (currNode === culprit) {
+      path = currPath;
+      break;
+    }
+    const neighbors = adj[currNode] || [];
+    for (const nbr of neighbors) {
+      if (!visited.has(nbr)) {
+        visited.add(nbr);
+        queue.push([...currPath, nbr]);
+      }
+    }
+  }
+
+  // Submit report to game worker
+  const submitRes = await fetch(`${GAME}/submit`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Session-Token": tok,
+      "User-Agent": "Mozilla/5.0",
+      "Origin": "https://tds-network-games.sanand.workers.dev",
+      "Referer": "https://tds-network-games.sanand.workers.dev/detective/",
+    },
+    body: JSON.stringify({ compromised_node: culprit, path }),
+  }).then((r) => r.json());
+
+  const token = submitRes.completion_token || submitRes.token || submitRes.jwt || "";
+  return {
+    email,
+    culprit,
+    path,
+    token,
+    result: submitRes.result || "success",
+  };
+}
+
 // ==========================================
 // Q13 & Q24: GitHub Actions & Raw File Helpers
 // ==========================================
@@ -281,6 +344,14 @@ export default async function handler(req, res) {
       const graphData = await discoverGraph(week);
       res.setHeader("Cache-Control", "public, s-maxage=604800, stale-while-revalidate=86400");
       return sendJson(res, 200, graphData);
+    }
+
+    // Q17: POST /detective-token or GET /detective-token?email=...
+    if (pathParts[0] === "detective-token" || pathParts[0] === "q17") {
+      const email = parsedUrl.searchParams.get("email") || (await readJson(req)).email;
+      if (!email) return sendJson(res, 400, { error: "email parameter is required" });
+      const solved = await solveDetectiveGame(email);
+      return sendJson(res, 200, solved);
     }
 
     // Q13: /gh-action

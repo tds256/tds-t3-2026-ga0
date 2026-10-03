@@ -6,17 +6,20 @@ This guide explains how to use your deployed solver API (`https://tds-t3-2026-ga
 
 ## 🎯 Quick Reference: Exam Submission Cheatsheet
 
-Whenever solving an exam for a student with email `user@example.com`, submit the following URLs into the respective question input boxes:
+Every single route from the reference repository is **100% active and supported** on your live Vercel service (`https://tds-t3-2026-ga0-ngrok.vercel.app`):
 
-| Question # | Question Title | Exam Input Field | URL to Submit in Exam |
-|:---:|---|---|---|
-| **Q5** | Code Interpreter with AI Error Analysis | `Enter your API endpoint URL:` | `https://tds-t3-2026-ga0-ngrok.vercel.app/t3-2026/ga0/code-interpreter` |
-| **Q10** | Write a FastAPI server to serve data | `Enter URL:` | `https://tds-t3-2026-ga0-ngrok.vercel.app/t3-2026/ga0/<EMAIL>/api` |
-| **Q11** | FastAPI Batch Sentiment Analysis | `Enter your FastAPI URL:` | `https://tds-t3-2026-ga0-ngrok.vercel.app/t3-2026/ga0/sentiment` |
-| **Q18** | Local Ollama Endpoint | `Paste your ngrok forwarding URL here:` | `https://tds-t3-2026-ga0-ngrok.vercel.app/t3-2026/ga0/<EMAIL>` |
-| **Q25** | Deploy a POST analytics endpoint to Vercel | `What is the POST endpoint URL?` | `https://tds-t3-2026-ga0-ngrok.vercel.app/t3-2026/ga0/<EMAIL>` |
-| **Q13** | Create a GitHub Action | `What is your repository URL?` | `https://github.com/tds256/tds-t3-2026-ga0-action` *(after trigger)* |
-| **Q24** | Use GitHub | `Enter raw Github URL of email.json:` | `https://raw.githubusercontent.com/tds256/tds-t3-2026-ga0-email/main/e/<HASH>.json` |
+| Route (Exact Reference Match) | Question | HTTP Method | What to Submit in Exam |
+|---|---|:---:|---|
+| **`POST /q5/code-interpreter`** | Q5 code interpreter (Python) | `POST` | `https://tds-t3-2026-ga0-ngrok.vercel.app/q5/code-interpreter` |
+| **`GET /<email>/api?class=...`** | Q10 FastAPI students | `GET` | `https://tds-t3-2026-ga0-ngrok.vercel.app/<email>/api` |
+| **`POST /q11`** | Q11 batch sentiment | `POST` | `https://tds-t3-2026-ga0-ngrok.vercel.app/q11` |
+| **`GET /<email>/api/version`** | Q18 Ollama version + `X-Email` | `GET` | `https://tds-t3-2026-ga0-ngrok.vercel.app/<email>` |
+| **`POST /<email>`** | Q25 latency stats | `POST` | `https://tds-t3-2026-ga0-ngrok.vercel.app/<email>` |
+| **`GET /detective-graph?week=`** | Q17 weekly graph (edge cached) | `GET` | `https://tds-t3-2026-ga0-ngrok.vercel.app/detective-graph?week=now` |
+| **`POST /gh-action`** | Q13 GitHub action trigger | `POST` | `https://github.com/tds256/tds-t3-2026-ga0-action` *(after trigger)* |
+| **`POST /gh-email`** | Q24 GitHub email JSON commit | `POST` | `https://raw.githubusercontent.com/tds256/tds-t3-2026-ga0-email/main/e/<hash>.json` |
+
+> ℹ️ *Note: All endpoints also support the collision-proof prefix `/t3-2026/ga0/...` (e.g. `/t3-2026/ga0/q5/code-interpreter`, `/t3-2026/ga0/<email>/api`), but the exact direct routes above match the reference repository 1:1.*
 
 ---
 
