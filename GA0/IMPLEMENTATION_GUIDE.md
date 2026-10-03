@@ -177,6 +177,44 @@ Every single route from the reference repository is **100% active and supported*
   ```
   Returns `{ "culprit": 40, "adj": {...}, "attrs": {...} }`. Shows the exact anomalous account and entire 120-node transaction adjacency.
 
+- **Option C: Frontend Button Integration (Browser Extension / Userscript / React / HTML)**:
+  When building a button in your solver UI, use this resilient click handler to ensure user experience never breaks:
+  ```javascript
+  async function solveQ17ButtonHandler(studentEmail) {
+    const btn = document.getElementById("solve-q17-btn");
+    const textarea = document.querySelector('textarea[name="q-network-game-detective"]');
+    
+    btn.disabled = true;
+    btn.innerText = "Solving Q17...";
+
+    try {
+      // 1. Fetch token from our resilient backend solver
+      const response = await fetch(`https://tds-t3-2026-ga0-ngrok.vercel.app/detective-token?email=${encodeURIComponent(studentEmail)}`);
+      const data = await response.json();
+
+      if (data.token) {
+        // Automatically insert into the exam's textarea
+        if (textarea) {
+          textarea.value = data.token;
+          // Trigger input/change event so exam form registers the value
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          textarea.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        btn.innerText = "✅ Q17 Solved & Token Pasted!";
+      } else {
+        // Fallback if session was finished before the solver ran
+        btn.innerText = "Session Done - Check Game Tab";
+        alert("The game was already completed for this email. Check the game tab (Recent saves > Reload) to copy the completion token.");
+      }
+    } catch (error) {
+      console.error("Q17 Solve Error:", error);
+      btn.innerText = "❌ Error Solving Q17";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  ```
+
 ---
 
 ## 💡 Automated Solver Script (Node.js / Python)
