@@ -1,0 +1,15 @@
+{
+  "framework": null,
+  "rewrites": [
+    { "source": "/t3-2026/ga0/code-interpreter", "destination": "/api/code" },
+    { "source": "/t32026/ga0/code-interpreter", "destination": "/api/code" },
+    { "source": "/t3-2026-ga0/code-interpreter", "destination": "/api/code" },
+    { "source": "/ga0/code-interpreter", "destination": "/api/code" },
+    { "source": "/q5/code-interpreter", "destination": "/api/code" },
+    { "source": "/code-interpreter", "destination": "/api/code" },
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "functions": {
+    "api/index.js": { "maxDuration": 60 }
+  }
+}

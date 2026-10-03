@@ -1,0 +1,13 @@
+{
+  "name": "tds-ga0-ngrok-solver",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node api/server.js",
+    "test": "node test/test_endpoints.js && node test/test_routing.js && node test/stress_test.js"
+  },
+  "dependencies": {
+    "seedrandom": "^3.0.5"
+  }
+}
