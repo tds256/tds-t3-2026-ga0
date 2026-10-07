@@ -393,7 +393,13 @@ export default async function handler(req, res) {
   if (req.url.includes('/mcp')) {
     const emailMatch = req.url.match(/\/t3-?2026\/ga1\/([^\/]+)\/mcp/i);
     const email = emailMatch ? decodeURIComponent(emailMatch[1]) : (ga1Parsed.searchParams.get('email') || req.headers['x-email'] || 'test@example.com');
-    return handleMcpRpc(req, res, email);
+    const body = req.method === 'POST' ? await readJson(req) : {};
+    const rpcResult = handleMcpRpc(req, body, email);
+    if (!rpcResult) {
+      res.statusCode = 204;
+      return res.end();
+    }
+    return sendJson(res, 200, rpcResult);
   }
 
   const parsedUrl = new URL(req.url, "http://localhost");
