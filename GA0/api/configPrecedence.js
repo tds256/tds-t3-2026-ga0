@@ -76,7 +76,19 @@ export function resolveEffectiveConfig(email, cliOverrides = {}, version = "") {
   const { baseEffective } = computeBaseEffective(email, version);
   const result = { ...baseEffective };
 
-  for (const [key, val] of Object.entries(cliOverrides)) {
+  const overridesObj = Array.isArray(cliOverrides)
+    ? Object.fromEntries(
+        cliOverrides.map((item) => {
+          const eqIdx = String(item).indexOf("=");
+          if (eqIdx !== -1) {
+            return [decodeURIComponent(item.slice(0, eqIdx)), decodeURIComponent(item.slice(eqIdx + 1))];
+          }
+          return [String(item), ""];
+        })
+      )
+    : cliOverrides || {};
+
+  for (const [key, val] of Object.entries(overridesObj)) {
     if (ne.includes(key)) {
       result[key] = rt(key, val);
     }
