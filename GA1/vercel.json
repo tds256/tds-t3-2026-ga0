@@ -1,0 +1,17 @@
+{
+  "framework": null,
+  "rewrites": [
+    { "source": "/t3-2026/ga1/(.*)", "destination": "/api/index" },
+    { "source": "/t32026/ga1/(.*)", "destination": "/api/index" },
+    { "source": "/ga1/(.*)", "destination": "/api/index" },
+    { "source": "/effective-config", "destination": "/api/index" },
+    { "source": "/mcp", "destination": "/api/index" },
+    { "source": "/gh-pages", "destination": "/api/index" },
+    { "source": "/ledger", "destination": "/api/index" },
+    { "source": "/submission.tar.gz", "destination": "/api/index" },
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "functions": {
+    "api/index.js": { "maxDuration": 60 }
+  }
+}
