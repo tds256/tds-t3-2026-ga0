@@ -1,7 +1,6 @@
 import { computeBaseEffective, resolveEffectiveConfig, rt } from "./configPrecedence.js";
 import { handleMcpRpc } from "./mcpServer.js";
 import { setupGitHubPages } from "./githubPages.js";
-import { handleServerRequest } from "./server.mjs";
 import seedrandom from "seedrandom";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -338,27 +337,7 @@ export default async function handler(req, res) {
   setCors(res);
   if (req.method === "OPTIONS") return res.writeHead(204).end();
 
-  const reqUrl = req.url || "/";
-  // Delegate universal GA1/GA2 backend and solver routes to handleServerRequest
-  if (
-    reqUrl === "/solver.js" ||
-    reqUrl.startsWith("/solver/") ||
-    reqUrl === "/labs-client.js" ||
-    reqUrl.startsWith("/s/") ||
-    reqUrl.startsWith("/mcp/") ||
-    reqUrl.startsWith("/ledger/") ||
-    reqUrl.startsWith("/answer/") ||
-    reqUrl.startsWith("/tangram/") ||
-    reqUrl.startsWith("/labs/") ||
-    reqUrl.startsWith("/artifacts/") ||
-    reqUrl === "/termlog" ||
-    reqUrl.startsWith("/termlog/") ||
-    reqUrl.startsWith("/t3-2026/ga2/") ||
-    reqUrl.startsWith("/ga2/")
-  ) {
-    return handleServerRequest(req, res);
-  }
-
+  
   // ==========================================
   // GA1 ROUTES SUPPORT
   // ==========================================
