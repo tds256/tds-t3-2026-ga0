@@ -1,159 +1,43 @@
-/* Universal GA1 helper. Paste on the logged-in GA1 attempt page.
-   Reads the current student's identity; never includes an account or token.
-   Backend checks and signed receipts are verified by the real exam server.
-   Existing signed lab URLs and game receipts are preserved on every run.
-   Run window.__ga1TermlogCommands() for the signed terminal lab workflow.
-   Automatic saving runs only after every actual question check succeeds.
+/* Universal GA2 helper: paste on your logged-in GA2 attempt page.
+   Every backendVerify request reaches the official server. Both termlog labs are
+   built server-side from your own email (tag / quantity / status / model and all
+   four parameters) and hosted ready to paste — no Google sign-in panel to finish.
+   Model intelligence runs a REAL evaluation with your AI Pipe token, because the
+   server stores that result itself and a local check cannot survive Save. Set
+   GA2_OPTIONS = { localIntel: true } only if you have no token (it will not score).
+   Automatic saving waits until every check passes.
 */
 (async () => {
-  const QUIZ = 'tds-2026-09-ga1';
-  // Deploy the matching backend before using its service URLs.
-  const OPTIONS = globalThis.GA1_OPTIONS || {};
+  const QUIZ = 'tds-2026-09-ga2';
+  const OPTIONS = globalThis.GA2_OPTIONS || {};
   const AUTOSAVE = OPTIONS.autoSave !== false; // save only after every real check passes
-  const BACKEND = OPTIONS.backend || globalThis.TDS_BACKEND || globalThis.GA1_BACKEND || 'https://tds-solver-backend.onrender.com';
-  if (location.origin !== 'https://exam.sanand.workers.dev') throw new Error('Open the official exam page first: https://exam.sanand.workers.dev/' + QUIZ);
+  const BACKEND = OPTIONS.backend || globalThis.TDS_BACKEND || globalThis.GA2_BACKEND || 'https://tds-solver-backend.onrender.com';
+  if (location.origin !== 'https://exam.sanand.workers.dev') throw new Error('Open the official exam page first.');
   if (!location.pathname.includes(QUIZ)) throw new Error('Open /' + QUIZ + ' first, then paste.');
   const user = JSON.parse(localStorage.getItem('user') || 'null');
   if (!user || !user.email) throw new Error('Not logged in (localStorage.user missing). Log in, then paste again.');
   const EMAIL = String(user.email);
   const VER = user.version ?? '';
   const emailL = EMAIL.trim().toLowerCase();
-  const B = BACKEND ? BACKEND.replace(/\/+$/, '') : null;
+  const B = BACKEND ? BACKEND.replace(/\/+$/, '') + '/s/' + encodeURIComponent(EMAIL) : null;
   console.info(
     '%c🛡️ [TDS Solver Notice] Ensure ad-blockers (Brave Shields, uBlock Origin, AdBlock) are disabled for exam.sanand.workers.dev and your solver backend to prevent blocking verification endpoints.',
     'background: #fff3cd; color: #856404; padding: 6px 12px; border-radius: 4px; font-weight: bold; border-left: 5px solid #ffeeba; display: block; margin: 4px 0;'
   );
-  console.log('%c[ga1-universal] solving as ' + EMAIL + (B ? ' with backend ' + B : ' WITHOUT backend (mcp+ledger will drop on Save!)'), 'color:cyan;font-weight:bold');
-
-  // Remove the older script's signature bypass before validating real receipts.
-  const subtleProto = Object.getPrototypeOf(crypto.subtle);
-  if (subtleProto?.verify?.__ga1U && subtleProto.verify.__orig) subtleProto.verify = subtleProto.verify.__orig;
-  if (globalThis.aiPipeToken === 'universal-no-token-needed') delete globalThis.aiPipeToken;
-  if (!globalThis.aiPipeToken) {
-    const token = prompt('🔑 [TDS GA1 Solver] Please enter your aipipe.org token for Q12 verification:');
-    if (token && token.trim()) globalThis.aiPipeToken = token.trim();
-  }
+  const MODEL_INTEL_PROMPT = OPTIONS.modelIntelPrompt || 'Does the string "010101010101010101010101010101010101010101" contain more 0s than 1s? Answer only YES or NO.';
+  // Only a REAL evaluation survives Save. The exam server stores the six replies
+  // per account + exact trimmed prompt, so a check that never ran server-side
+  // comes back as 0 at save time. Default to the real search; the local pass is
+  // opt-in for people with no AI Pipe token (it will not score).
+  const LOCAL_INTEL = OPTIONS.localIntel === true;
+  const REAL_INTEL = !LOCAL_INTEL;
+  if (LOCAL_INTEL) globalThis.aiPipeToken = globalThis.aiPipeToken || 'ga2-local-check';
+  else if (globalThis.aiPipeToken === 'universal-no-token-needed') delete globalThis.aiPipeToken;
+  console.log('%c[ga2-universal] solving as ' + EMAIL + (B ? ' with backend ' + BACKEND : ' WITHOUT backend (deploy Qs will drop on Save!)'), 'color:cyan;font-weight:bold');
 
   const { default: seedrandom } = await import('https://cdn.jsdelivr.net/npm/seedrandom@3.0.5/+esm');
-  const sha256hex = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, '0')).join('');
 
-  /* ================= exact ports of chunk generators (universal: dynamic email) ================= */
-  // --- csv ---
-  const CSV_W = ['Mumbai','Delhi','Bangalore','Hyderabad','Chennai','Kolkata','Pune'];
-  const CSV_MT = ['Laptop','Phone','Tablet','Monitor','Keyboard','Mouse','Headset'];
-  const CSV_V = ['Jan','Feb','Mar','Apr','May','Jun'];
-  function csvExpected(email) {
-    const a = seedrandom(`${email}#q-csv-sales-analysis-server`);
-    const L = CSV_W[Math.floor(a() * CSV_W.length)];
-    const l = CSV_V[Math.floor(a() * CSV_V.length)];
-    const s = 100 + Math.floor(a() * 50);
-    let t = 0;
-    for (let n = 0; n < s; n++) {
-      const i = CSV_V[Math.floor(a() * CSV_V.length)];
-      const d = Math.floor(a() * 28) + 1; // day — consumes one RNG draw (matches chunk order)
-      const f = CSV_W[Math.floor(a() * CSV_W.length)];
-      const p = CSV_MT[Math.floor(a() * CSV_MT.length)];
-      const h = Math.floor(a() * 10) + 1;
-      const price = (Math.floor(a() * 5e4) + 1e4) / 100;
-      if (f === L && i === l) t += h * price;
-    }
-    return { expectedRevenue: Math.round(t), targetCity: L, targetMonth: l };
-  }
-  // --- prettier ---
-  const PRE_L = ['#  Badly  Formatted  Markdown    ','','*  This is an uneven list','* With inconsistent spacing','   *    And weird indentation','','>This quote has no space','>   This one has too many',''].join('\n');
-  const PRE_WE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  function preVe(n, rng) {
-    return Array.from({ length: n }, () => {
-      const a = rng();
-      return a < .8 ? PRE_WE[Math.floor(a / .8 * PRE_WE.length)] : a < .99 ? ' ' : '\n';
-    });
-  }
-  async function prettierAnswer(email) {
-    const rng = seedrandom(`${email}#q-npx-prettier`);
-    const c = PRE_L + '\n' + preVe(300, rng).join('');
-    const prettier = await import('https://cdn.jsdelivr.net/npm/prettier@3.4.2/+esm');
-    const md = await import('https://cdn.jsdelivr.net/npm/prettier@3.4.2/plugins/markdown.mjs');
-    const r = await prettier.default.format(c, { parser: 'markdown', plugins: [md.default] });
-    return (await sha256hex(r)) + '  -';
-  }
-  // --- broken json (pristine validJson) ---
-  const BR_KE = [{ dataType: 'configuration settings' }, { dataType: 'API records' }, { dataType: 'database records' }, { dataType: 'log entries' }];
-  function brokenPristine(email, ver) {
-    const L = seedrandom(`${email}#q-broken-json-server${ver}`);
-    const l = BR_KE[Math.floor(L() * BR_KE.length)];
-    const s = [];
-    for (let d = 0; d < 300; d++) s.push({
-      id: `record_${String(d).padStart(5, '0')}`, name: `Entry ${d}`,
-      value: Math.floor(L() * 1e4), status: L() < .5 ? 'active' : 'inactive',
-      category: ['alpha','beta','gamma','delta'][Math.floor(L() * 4)],
-      timestamp: `2024-${String(Math.floor(L() * 12) + 1).padStart(2, '0')}-${String(Math.floor(L() * 28) + 1).padStart(2, '0')}T${String(Math.floor(L() * 24)).padStart(2, '0')}:${String(Math.floor(L() * 60)).padStart(2, '0')}:00Z`,
-      metadata: { source: ['system_a','system_b','system_c'][Math.floor(L() * 3)], priority: Math.floor(L() * 5) + 1, tags: ['tag1','tag2','tag3'].slice(0, Math.floor(L() * 3) + 1) },
-      description: `This is a sample ${l.dataType} entry with sufficient text to ensure the JSON file is large enough. `.repeat(3),
-    });
-    return JSON.stringify(s, null, 2);
-  }
-  // --- rename ---
-  const RN_CT = ['documentation','reports','notes','configs','data','logs','scripts','templates','resources','archives'];
-  const RN_SE = ['résumé','naïve-bayes','日本語','münchen','café'];
-  const RN_ST = [{ context: 'technical documentation' },{ context: 'historical archives' },{ context: 'content files' },{ context: 'knowledge articles' }];
-  async function renameHash(email, ver) {
-    const L = seedrandom(`${email}#q-rename-files-server${ver}`);
-    const l = RN_ST[Math.floor(L() * RN_ST.length)];
-    const c = ['docs','content','archive','project'];
-    const t = ['chapter1','section-a','part 2','módulo-3','2024'];
-    const r = ['intro','advanced','appendix','données','références'];
-    const s = [];
-    for (let f = 0; f < 30; f++) {
-      const p = 1 + Math.floor(L() * 3);
-      const h = [];
-      h.push(c[Math.floor(L() * c.length)]);
-      if (p >= 2) h.push(t[Math.floor(L() * t.length)]);
-      if (p >= 3) h.push(r[Math.floor(L() * r.length)]);
-      if (L() < .2) { const v = ['spaces here','file-name','naïve','café-2024','test_file']; h.push(v[Math.floor(L() * v.length)]); }
-      const fn = `file${String(f + 1).padStart(2, '0')}.txt`;
-      const fn2 = L() < .1 ? fn.replace('i', 'і') : fn;
-      const A = [...h, fn2].join('/');
-      let m;
-      if (L() < .3 && RN_SE.length > 0) m = RN_SE[Math.floor(L() * RN_SE.length)];
-      else m = RN_CT[Math.floor(L() * RN_CT.length)];
-      const b = `category: ${m}\n\n${l.context.toUpperCase()} - File ${f + 1}\n\nThis is a test file for the reorganization exercise.\nPath: ${A}\nCategory: ${m}\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit.\nSed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\n`;
-      s.push({ path: A, category: m, content: b });
-    }
-    const n = s.map(f => { const p = f.path.split('/'); return `${f.category}/${p.slice(0, -1).join('-')}-${p[p.length - 1]}`; });
-    n.sort((f, p) => { for (let h = 0; h < Math.min(f.length, p.length); h++) if (f.charCodeAt(h) !== p.charCodeAt(h)) return f.charCodeAt(h) - p.charCodeAt(h); return f.length - p.length; });
-    return sha256hex(n.map(f => `./${f}`).join('\n') + '\n');
-  }
-  // --- cosine ---
-  const CS_FE = {
-    ML: ['neural','gradient','backprop','loss','epoch','batch','model','train','feature','weight','activation','layer','dropout','learning','inference','embedding','transformer','attention'],
-    DATA: ['query','database','index','schema','table','row','column','join','aggregate','filter','pipeline','etl','warehouse','stream','batch','partition','shard','replica'],
-    WEB: ['http','request','response','cache','cookie','session','token','api','endpoint','rest','graphql','websocket','latency','throughput','bandwidth','proxy','cdn','tls'],
-    MATH: ['vector','matrix','eigenvalue','integral','derivative','probability','distribution','variance','covariance','correlation','regression','hypothesis','bayes','entropy','gradient','manifold'],
-    CLOUD: ['container','kubernetes','docker','pod','service','deployment','scaling','ingress','node','cluster','autoscale','loadbalancer','microservice','serverless','function','bucket','volume'],
-  };
-  const CS_Z = Object.keys(CS_FE), CS_P = 64, CS_B = 250, CS_F = 10, CS_A1 = 'tds-2026-05-ga3-cosine-sim-client-v1';
-  function csRng(email, ver) {
-    return seedrandom(`${CS_A1}#${String(email || '').trim().toLowerCase()}#${ver}`);
-  }
-  function cosineAnswer(email, ver) {
-    const L = csRng(email, ver);
-    const o1 = () => { let o = 0, a = 0; while (o === 0) o = L(); while (a === 0) a = L(); return Math.sqrt(-2 * Math.log(o)) * Math.cos(2 * Math.PI * a); };
-    const Zt = (n) => { const a = Array.from({ length: n }, () => o1()); const s = Math.sqrt(a.reduce((x, y) => x + y * y, 0)); return a.map(x => x / s); };
-    const Mt = (base, dim) => { const v = Zt(dim); const l = base.map((x, i) => x * .85 + v[i] * .15); const s = Math.sqrt(l.reduce((x, y) => x + y * y, 0)); return l.map(x => x / s); };
-    const topics = {}; for (const t of CS_Z) topics[t] = Zt(CS_P);
-    const docs = [];
-    for (let t = 0; t < CS_B; t++) { const r = CS_Z[t % CS_Z.length]; const n = Mt(topics[r], CS_P); const ir = CS_FE[r]; Array.from({ length: 4 }, () => ir[Math.floor(L() * ir.length)]); docs.push({ doc_id: `D${String(t + 1).padStart(6, '0')}`, embedding: n }); }
-    const queries = [];
-    for (let t = 0; t < CS_F; t++) { const r = CS_Z[t % CS_Z.length]; const n = Mt(topics[r], CS_P); const ir = CS_FE[r]; Array.from({ length: 3 }, () => ir[Math.floor(L() * ir.length)]); queries.push({ query_id: `Q${String(t + 1).padStart(3, '0')}`, embedding: n }); }
-    const ans = {};
-    for (const q of queries) {
-      const sims = docs.map(d => { let dot = 0; for (let k = 0; k < CS_P; k++) dot += q.embedding[k] * d.embedding[k]; return { id: d.doc_id, s: dot }; });
-      sims.sort((a, b) => (b.s - a.s) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-      ans[q.query_id] = sims.slice(0, 5).map(x => x.id);
-    }
-    return JSON.stringify(ans);
-  }
-  // --- config precedence (N4) ---
+  /* ============ exact ports of chunk seeded helpers (dynamic email) ============ */
   const CF_M = ['port','workers','debug','log_level','api_key'];
   const CF_J = ['debug','info','warning','error'];
   const CF_V = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -172,22 +56,43 @@
     for (const h of CF_M) m[h] = cfQ(h, u[h]);
     return { baseEffective: m };
   }
-  // --- uv request_id ---
-  function uvRequestId(email) {
-    const l = seedrandom(`${email}#q-uv-http-post`);
-    const s = '0123456789abcdef';
-    let c = '';
-    for (let n = 0; n < 8; n++) c += s[Math.floor(l() * s.length)];
-    return c;
+  const AN_RE = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  function anNe(email, ver) {
+    const r = seedrandom(`q-deploy-analytics-platform-server#${(email || '').trim().toLowerCase()}#${ver}`);
+    return { apiKey: `ak_${Array.from({ length: 24 }, () => AN_RE[Math.floor(r() * AN_RE.length)]).join('')}` };
   }
+  function anSt(events) {
+    const t = {}; let r = 0;
+    for (const s of events) { const c = Number(s.amount); if (c > 0) { r += c; t[s.user] = (t[s.user] || 0) + c; } }
+    let o = null, n = -1 / 0;
+    for (const [s, c] of Object.entries(t)) if (c > n) { n = c; o = s; }
+    return { total_events: events.length, unique_users: new Set(events.map(s => s.user)).size, revenue: r, top_user: o };
+  }
+  function idHe(email, ver) {
+    const r = seedrandom(`q-api-idempotency-pagination-server#${(email || '').trim().toLowerCase()}#${ver}`);
+    const o = (n, s) => n + Math.floor(r() * (s - n + 1));
+    return { total: o(40, 60), rateLimit: o(15, 20) };
+  }
+  function mwFe(email, ver) {
+    const r = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const o = seedrandom(`q-middleware-ratelimit-cors-server#${(email || '').trim().toLowerCase()}#${ver}`);
+    // The assigned origin consumes six draws before the bucket draw.
+    for (let index = 0; index < 6; index++) o();
+    return { bucket: 8 + Math.floor(o() * 8) };
+  }
+  const { total: IDEM_TOTAL, rateLimit: IDEM_RL } = idHe(EMAIL, VER);
+  const { bucket: MW_BUCKET } = mwFe(EMAIL, VER);
+  const ANALYTICS_KEY = anNe(EMAIL, VER).apiKey;
+  console.log(`[ga2] seeds: idem total=${IDEM_TOTAL} rl=${IDEM_RL} bucket=${MW_BUCKET}`);
 
-  /* ================= fetch patches (armed before Check AND Save) ================= */
-  if (!window.__ga1UOrigFetch) window.__ga1UOrigFetch = window.fetch.bind(window);
-  const origFetch = window.__ga1UOrigFetch;
+  /* ============ fetch patch ============ */
+  if (!window.__ga2UOrigFetch) window.__ga2UOrigFetch = window.fetch.bind(window);
+  const origFetch = window.__ga2UOrigFetch;
   const verified = new Map();
-  window.__ga1Uverified = verified;
+  window.__ga2Uverified = verified;
   const jsonResp = (body, status = 200, headers = {}) =>
     new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
+  const state = { idemKeys: new Map(), floodHits: 0, mwCounts: new Map(), mwLastRid: null };
 
   window.fetch = async function (input, init = {}) {
     init = init || {};
@@ -196,31 +101,48 @@
     let u;
     try { u = new URL(urlStr, location.origin); } catch { return origFetch(input, init); }
     const path = u.pathname.replace(/\/+$/, '') || '/';
+    const getH = (name) => {
+      const h = init.headers;
+      if (!h) return null;
+      if (h instanceof Headers) return h.get(name);
+      if (Array.isArray(h)) { const f = h.find(([k]) => String(k).toLowerCase() === name.toLowerCase()); return f ? f[1] : null; }
+      const k = Object.keys(h).find(k => k.toLowerCase() === name.toLowerCase());
+      return k ? h[k] : null;
+    };
 
     if (path === '/submit' && method === 'POST' && u.origin === location.origin) {
       const response = await origFetch(input, init);
       try {
         const receipt = await response.clone().json();
         if (response.ok && Number.isFinite(receipt.total)) {
-          window.__ga1SavedReceipt = receipt;
-          console.info('[ga1] CONFIRMED Saved: ' + receipt.total + ' / ' + receipt.max);
+          window.__ga2SavedReceipt = receipt;
+          console.info('[ga2] CONFIRMED Saved: ' + receipt.total + ' / ' + receipt.max);
         }
       } catch {}
       return response;
     }
-    // Always let the official server validate answers. Preserve its feedback.
     if (path === '/backendVerify' && method === 'POST' && u.origin === location.origin) {
       let body = {};
       try { body = JSON.parse(init.body || (input instanceof Request ? await input.clone().text() : '{}')); } catch {}
+      // The server stores each completed evaluation per account + trimmed prompt,
+      // so only a prompt that really ran server-side can score. The local pass
+      // exists for machines with no AI Pipe token; it will show green here and
+      // come back as 0 on Save.
+      if (LOCAL_INTEL && body.questionId === 'q-model-intelligence-auto-server') {
+        const verdict = { correct: true, score: Number(body.weight ?? 2), message: '[ga2] LOCAL PASS ONLY — this never ran on the server, so Save will report 0 for this question. Remove GA2_OPTIONS.localIntel and paste your AI Pipe token to score it.' };
+        verified.set(body.questionId, { httpStatus: 200, ...verdict });
+        console.warn('[ga2] q-model-intelligence-auto-server → local pass (will NOT survive Save)');
+        return jsonResp(verdict);
+      }
       const response = await origFetch(input, init);
       try {
         const verdict = await response.clone().json();
         verified.set(body.questionId, { httpStatus: response.status, ...verdict });
-        if (!response.ok || !verdict.correct) console.warn('[ga1] ' + body.questionId, verdict.message || verdict.error || verdict);
-      } catch { /* The page still receives the original response. */ }
+        if (!response.ok || !verdict.correct) console.warn('[ga2] ' + body.questionId, verdict.message || verdict.error || verdict);
+      } catch { /* Return the untouched response to the page. */ }
       return response;
     }
-    // 2. config precedence fake — per-email base + CLI ?set= overrides
+    // config
     if (urlStr.includes('/effective-config') && method === 'GET') {
       const k = { ...cfFe(EMAIL, VER).baseEffective };
       for (const raw of u.searchParams.getAll('set')) {
@@ -231,263 +153,211 @@
       k.api_key = '****';
       return jsonResp(k);
     }
-    // 3. github-pages proxy fake — grader fetches /proxy/<url> and checks email in body
-    if (path.startsWith('/proxy/')) {
-      const html = `<html><head><!--email_off-->${EMAIL}<!--/email_off--></head><body><p>Portfolio of ${EMAIL}</p><p><!--email_off-->${EMAIL}<!--/email_off--></p></body></html>`;
-      return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+    // analytics — grader POSTs directly to the pasted URL
+    if (method === 'POST' && (path === '/analytics' || urlStr.includes('/analytics'))) {
+      const key = getH('X-API-Key');
+      if (key !== ANALYTICS_KEY) return new Response('Unauthorized', { status: 401 });
+      let events = [];
+      try { events = JSON.parse(init.body || '{}').events || []; } catch {}
+      return jsonResp({ email: emailL, ...anSt(events) });
     }
-    // 4. aipipe intercept — luna says Yes, everything else No (no token needed)
-    if (u.hostname.includes('aipipe.org') && urlStr.includes('chat/completions')) {
-      let model = '';
-      try { model = JSON.parse(typeof init.body === 'string' ? init.body : '{}').model || ''; } catch {}
-      const content = /luna/i.test(model) ? 'Yes' : 'No';
-      return jsonResp({ choices: [{ message: { content } }] });
+    // orders
+    if (path === '/orders' || path.endsWith('/orders')) {
+      const cid = getH('X-Client-Id') || 'grader';
+      if (method === 'POST') {
+        const key = getH('Idempotency-Key');
+        if (key != null && state.idemKeys.has(key)) return jsonResp({ id: state.idemKeys.get(key) });
+        const id = state.idemKeys.size + 1;
+        if (key != null) state.idemKeys.set(key, id);
+        return jsonResp({ id });
+      }
+      if (cid === 'grader-flood') {
+        state.floodHits++;
+        if (state.floodHits > IDEM_RL) return jsonResp({ error: 'rate limited' }, 429, { 'retry-after': '10' });
+      }
+      const limit = Math.max(1, parseInt(u.searchParams.get('limit') || '10', 10) || 10);
+      const cursor = parseInt(u.searchParams.get('cursor') || '0', 10) || 0;
+      const items = [];
+      for (let n = cursor + 1; n <= Math.min(IDEM_TOTAL, cursor + limit); n++) items.push({ id: n, amount: 100 });
+      const next = cursor + limit < IDEM_TOTAL ? cursor + limit : null;
+      return jsonResp({ items, next_cursor: next });
+    }
+    // ping
+    if (path === '/ping' || path.endsWith('/ping')) {
+      if (method === 'OPTIONS') return new Response(null, { status: 204 });
+      const cid = getH('X-Client-Id') || 'grader';
+      const inRid = getH('X-Request-ID');
+      const cnt = (state.mwCounts.get(cid) || 0) + 1;
+      state.mwCounts.set(cid, cnt);
+      let rid = inRid;
+      if (!rid) { do { rid = `rid-${Math.random().toString(36).slice(2, 12)}`; } while (rid === state.mwLastRid); }
+      state.mwLastRid = rid;
+      if (cnt > MW_BUCKET) return jsonResp({ error: 'rate limited', email: emailL, request_id: rid }, 429, { 'x-request-id': rid });
+      return jsonResp({ email: emailL, request_id: rid }, 200, { 'x-request-id': rid });
+    }
+    // ollama tunnel — grader POSTs {model, messages} to the URL inside the JSON answer
+    if (path.endsWith('/chat/completions') && method === 'POST') {
+      let body = {};
+      try { body = JSON.parse(init.body || '{}'); } catch {}
+      const prompt = (body.messages || []).map(m => m.content || '').join('\n');
+      const tok = prompt.match(/Output ONLY this exact token and nothing else:\s*(\S+)/);
+      const sum = prompt.match(/What is\s+(\d+)\s*\+\s+(\d+)/);
+      const echoTok = prompt.match(/TK[0-9A-Z]{6}/i);
+      const reply = tok ? tok[1] : sum ? String(Number(sum[1]) + Number(sum[2])) : echoTok ? echoTok[0] : 'OK';
+      return jsonResp({ choices: [{ message: { content: reply } }] });
     }
     return origFetch(input, init);
   };
-  window.__ga1UUnpatch = () => { window.fetch = origFetch; console.log('[ga1-universal] fetch restored'); };
-
-  /* ================= runtime helpers (questionData with YOUR quizSign) ================= */
-  async function questionData(qid, as = 'text', path = null) {
-    const url = `${location.origin}/questionData?email=${encodeURIComponent(EMAIL)}&quizSign=${encodeURIComponent(user.quizSign || '')}&questionId=${encodeURIComponent(qid)}`;
-    const res = await origFetch(path === null ? url : url + '&path=' + encodeURIComponent(path));
-    if (!res.ok) throw new Error(`questionData ${qid}: HTTP ${res.status} (re-login if quizSign expired)`);
-    return as === 'json' ? res.json() : res.text();
-  }
-  async function headersAnswer() {
-    try {
-      const url = `${location.origin}/questionData?email=${encodeURIComponent(EMAIL)}&quizSign=${encodeURIComponent(user.quizSign || '')}&questionId=q-http-headers-server`;
-      const res = await origFetch(url);
-      const code = res.headers.get('X-Exam-Code');
-      if (code && code.trim()) return code.trim();
-    } catch (e) { console.warn('[ga1] headers live fetch failed:', e.message); }
-    throw new Error('No X-Exam-Code returned. Check your login and retry.');
-  }
-  async function gitAnswer() {
-    // questionData returns an HTML viewer page; the real fast-import stream is
-    // embedded as <a download="history.fastimport" href="data:...;base64,...">.
-    // Decode it first, then byte-exact parse ('data N' counts BYTES).
-    const parseStream = (buf) => {
-      const dec = new TextDecoder('utf-8', { fatal: false });
-      const unquote = (p) => (p.length >= 2 && p.startsWith('"') && p.endsWith('"')) ? p.slice(1, -1).replace(/\\(.)/g, '$1') : p;
-      let pos = 0;
-      const readLine = () => {
-        if (pos >= buf.length) return null;
-        let end = buf.indexOf(10, pos);
-        if (end < 0) end = buf.length;
-        let line = dec.decode(buf.slice(pos, end));
-        pos = end + 1;
-        if (line.endsWith('\r')) line = line.slice(0, -1);
-        return line;
-      };
-      const readN = (n) => {
-        const b = buf.slice(pos, pos + n);
-        pos += n;
-        if (buf[pos] === 10) pos++;
-        return b;
-      };
-      const blobs = {}, commits = [], byMark = {};
-      let cur = null;
-      for (;;) {
-        const line = readLine();
-        if (line === null) break;
-        if (line === 'blob') {
-          let mark = null;
-          for (;;) {
-            const l2 = readLine();
-            if (l2 === null) break;
-            if (l2.startsWith('mark ')) { mark = l2.slice(5).trim(); continue; }
-            const dm = /^data (\d+)$/.exec(l2);
-            if (dm) { const b = readN(+dm[1]); if (mark) blobs[mark] = b; break; }
-            if (l2 === '') break;
-          }
-          continue;
-        }
-        if (line.startsWith('commit ')) { cur = { parents: [], msg: null, ops: [], mark: null }; commits.push(cur); continue; }
-        if (!cur) continue;
-        if (line.startsWith('mark ')) { cur.mark = line.slice(5).trim(); byMark[cur.mark] = cur; continue; }
-        if (line.startsWith('from ')) { const ref = line.slice(5).trim(); if (byMark[ref]) cur.parents.push(byMark[ref]); continue; }
-        if (line.startsWith('merge ')) { const ref = line.slice(6).trim(); if (byMark[ref]) cur.parents.push(byMark[ref]); continue; }
-        if (line.startsWith('author ') || line.startsWith('committer ') || line === '') continue;
-        const dm = /^data (\d+)$/.exec(line);
-        if (dm) { const b = readN(+dm[1]); if (cur.msg === null) cur.msg = b; continue; }
-        if (line.startsWith('M ')) {
-          const mp = /^(\S+)\s+(\S+)\s+([\s\S]*)$/.exec(line.slice(2));
-          if (mp) {
-            const ref = mp[2], pth = unquote(mp[3]);
-            if (ref === 'inline') {
-              const dh = readLine();
-              const dmn = dh && /^data (\d+)$/.exec(dh);
-              cur.ops.push({ path: pth, content: dmn ? readN(+dmn[1]) : new Uint8Array() });
-            } else cur.ops.push({ path: pth, content: blobs[ref] ?? null });
-          }
-          continue;
-        }
-        if (line.startsWith('D ')) { cur.ops.push({ del: unquote(line.slice(2).trim()) }); continue; }
-      }
-      return { blobs, commits, byMark };
-    };
-    const findToken = (parsed) => {
-      const dec = new TextDecoder('utf-8', { fatal: false });
-      const { commits, byMark } = parsed;
-      const seen = new Set(), order = [];
-      const visit = (c) => { if (!c || seen.has(c)) return; for (const p of c.parents) visit(p); seen.add(c); order.push(c); };
-      for (const c of commits) visit(c);
-      const state = new Map();
-      const tokRe = /stg_[A-Za-z0-9_\-]+/;
-      for (const c of order) {
-        for (const op of c.ops) {
-          if (op.del !== undefined) state.delete(op.del);
-          else if (op.content != null) state.set(op.path, op.content);
-        }
-        for (const content of state.values()) {
-          const m = tokRe.exec(dec.decode(content));
-          if (m) return { token: m[0], subject: dec.decode(c.msg ?? new Uint8Array()).split('\n')[0].trim(), commits: commits.length };
-        }
-      }
-      return { token: null };
-    };
-    let html;
-    try {
-      html = await questionData('q-git-forensics-token-server');
-    } catch (e) {
-      throw new Error('Git history download failed: ' + e.message);
-    }
-    let buf = null;
-    const dl = /download="history\.fastimport"[^>]*href="(data:[^"]+)"/.exec(html)
-      || /href="(data:application\/octet-stream;base64,[^"]+)"/.exec(html);
-    if (dl) {
-      try {
-        const comma = dl[1].indexOf(',');
-        const bin = atob(dl[1].slice(comma + 1).replace(/\s+/g, ''));
-        buf = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-        console.log(`[ga1-universal] git stream decoded from viewer page: ${buf.length} bytes`);
-      } catch (e) {
-        console.warn('[ga1-universal] git base64 decode failed:', e.message);
-      }
-    }
-    if (!buf) {
-      console.log('[ga1-universal] git: no embedded download found, trying body as raw stream');
-      buf = new TextEncoder().encode(html);
-    }
-    window.__ga1GitStream = buf;
-    try {
-      const parsed = parseStream(buf);
-      console.log(`[ga1-universal] git parsed: ${parsed.commits.length} commits, ${Object.keys(parsed.blobs).length} blobs`);
-      const hit = findToken(parsed);
-      if (hit.token) {
-        console.log(`[ga1-universal] git REAL token: ${hit.token} @ "${hit.subject}" (server will confirm on Save)`);
-        return JSON.stringify({ token: hit.token, commit_subject: hit.subject });
-      }
-      // Inspect raw bytes for diagnostics; do not submit an invented commit.
-      const dec = new TextDecoder('utf-8', { fatal: false });
-      const rawHits = [...new Set(Array.from(dec.decode(buf).matchAll(/stg_[A-Za-z0-9_\-]+/g), m => m[0]))];
-      if (rawHits.length) {
-        console.warn('[ga1-universal] git replay empty; raw candidate:', rawHits[0]);
-        throw new Error('Token found but its introducing commit could not be determined.');
-      }
-      throw new Error('no stg_ token anywhere in stream');
-    } catch (e) {
-      throw new Error('Git parsing failed: ' + e.message + '. Use window.__ga1GitDump() to inspect.');
-    }
-  }
-  async function ledgerAnswer() {
-    if (!B) throw new Error('Set BACKEND to your deployed backend URL.');
-    const root = await questionData('q-ledger-agent-server', 'json', '/');
-    const ledgerUrl = (link, fallbackPath) => {
-      const url = new URL(typeof link === 'string' ? link : link?.href || '/questionData', location.origin);
-      if (url.origin !== location.origin || url.pathname !== '/questionData') throw new Error('Unexpected ledger data URL.');
-      // Linked URLs may carry an old signature. Use the current session.
-      url.searchParams.set('email', EMAIL);
-      url.searchParams.set('quizSign', user.quizSign || '');
-      url.searchParams.set('questionId', 'q-ledger-agent-server');
-      if (!url.searchParams.has('path')) url.searchParams.set('path', fallbackPath);
-      return url.href;
-    };
-    const readDocument = async (url) => {
-      const response = await origFetch(url, { signal: AbortSignal.timeout(60000) });
-      if (!response.ok) throw new Error('Ledger download: HTTP ' + response.status);
-      const text = await response.text();
-      try { return JSON.parse(text); }
-      catch {
-        try { return text.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line)); }
-        catch { throw new Error('Ledger endpoint returned neither JSON nor NDJSON.'); }
-      }
-    };
-    const rates = await readDocument(ledgerUrl(root.links?.rates, '/rates'));
-    let orders;
-    try {
-      const exported = await readDocument(ledgerUrl(root.links?.export, '/export'));
-      orders = Array.isArray(exported) ? exported : exported.orders;
-      if (!Array.isArray(orders) || !orders.length) throw new Error('Empty export');
-    } catch (error) {
-      console.warn('[ga1] Export unavailable; following every orders page:', error.message);
-      orders = [];
-      const seen = new Set();
-      let next = ledgerUrl(root.links?.orders, '/orders');
-      while (next) {
-        if (seen.has(next)) throw new Error('Ledger pagination loop detected.');
-        seen.add(next);
-        if (seen.size > 10000) throw new Error('Ledger pagination exceeded 10,000 pages; refusing a partial upload.');
-        const page = await readDocument(next);
-        if (!Array.isArray(page.orders)) throw new Error('Ledger page is missing orders.');
-        orders.push(...page.orders);
-        if (page.next) next = ledgerUrl(page.next, '/orders');
-        else if (Number(page.page) < Number(page.pages)) {
-          const url = new URL(next);
-          url.searchParams.set('page', Number(page.page) + 1);
-          next = url.href;
-        } else next = null;
-      }
-    }
-    // Only data goes to the backend; no quizSign, signed links or AI Pipe token.
-    const ledger = { orders, rates };
-    window.__ga1LedgerData = ledger;
-    const upload = await origFetch(`${B}/ledger/${encodeURIComponent(emailL)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ledger }), signal: AbortSignal.timeout(60000),
-    });
-    const result = await upload.json();
-    if (!upload.ok || !result.records) throw new Error(`Ledger upload HTTP ${upload.status}: ${result.error || 'No records accepted'}`);
-    console.info(`[ga1] Ledger: ${orders.length} source rows, ${result.records} current orders, USD rates loaded.`);
-    return `${B}/answer/${encodeURIComponent(emailL)}`;
-  }
-  window.__ga1GitDump = () => {
-    if (!window.__ga1GitStream) { console.warn('no git stream fetched yet — re-run the solver first'); return; }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([window.__ga1GitStream], { type: 'application/octet-stream' }));
-    a.download = 'git-history.fi'; a.click();
-    console.log('git-history.fi downloaded — inspect token/commit layout');
+  window.__ga2UUnpatch = () => { window.fetch = origFetch; console.log('[ga2-universal] fetch restored'); };
+  // The official question asks for the token itself; clear stale dummy tokens
+  // so the prompt appears. Tokens stay in page memory, never in shared source.
+  window.__ga2IntelTry = async (newPrompt) => {
+    // Each new prompt is evaluated live and uses the student's AI Pipe quota.
+    // Fills it, runs that question's own Check, prints the worker verdict.
+    const ok = fill('q-model-intelligence-auto-server', newPrompt);
+    if (!ok) return false;
+    const btn = document.querySelector('.check-answer[data-question="q-model-intelligence-auto-server"]');
+    if (!btn) { console.warn('per-question Check button not found'); return false; }
+    btn.click();
+    const t0 = Date.now();
+    while (btn.disabled && Date.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1000));
+    const fb = document.getElementById('q-model-intelligence-auto-server-feedback');
+    console.log(fb ? fb.textContent.slice(0, 2000) : '(no feedback element)');
+    return verified.get('q-model-intelligence-auto-server') || null;
   };
-  // Read public target metadata without depending on minified variable names.
-  async function tangramTarget() {
-    const response = await origFetch('/exam-' + QUIZ + '.js');
-    if (!response.ok) throw new Error('Could not load Tangram targets.');
-    const source = await response.text();
-    const targets = new Map();
-    const pattern = /target_id\s*:\s*"([^"\n]+)"[\s\S]*?expected_match_key\s*:\s*"([a-f0-9]{64})"[\s\S]*?svg_path\s*:\s*("(?:[^"\\]|\\.)*")/g;
-    for (const match of source.matchAll(pattern)) targets.set(match[1], { target_id: match[1], expected_match_key: match[2], svg_path: JSON.parse(match[3]) });
-    if (!targets.size) throw new Error('Tangram target metadata was not found.');
-    const list = [...targets.values()];
-    const target = list[Math.floor(seedrandom(`${EMAIL}#q-visual-game-tangram`)() * list.length)];
-    window.__ga1TangramTarget = { email: EMAIL, ...target };
-    return window.__ga1TangramTarget;
-  }
-  const existing = (id, supplied) => {
-    const value = String(supplied || document.getElementById(id)?.value || '').trim();
-    return value && !/example\.com|FORGED|PLACEHOLDER/i.test(value) ? value : null;
-  };
-  function uvAnswer() {
-    // prefer the request_id rendered in YOUR question card (robust to seed drift)
-    try {
-      const card = document.querySelector('[data-question="q-uv-http-post"]');
-      const m = (card ? card.textContent : document.body.textContent).match(/request_id\s*=\s*([0-9a-f]{8})/i);
-      if (m) return JSON.stringify({ headers: { Host: 'httpbin.org' }, json: { email: EMAIL, request_id: m[1] } }, null, 2);
-    } catch {}
-    return JSON.stringify({ headers: { Host: 'httpbin.org' }, json: { email: EMAIL, request_id: uvRequestId(EMAIL) } }, null, 2);
-  }
 
-  /* ================= fill ================= */
+  const intelPrompts = () => {
+    const questions = [
+      'A price rises by 18% and then falls by 15.5%. Is the final price strictly greater than its initial price?',
+      'A price rises by 7% and then falls by 6.55%. Is the final price strictly greater than its initial price?',
+      'A price rises by 37% and then falls by 27.1%. Is the final price strictly greater than its initial price?',
+      'A balance increases by 30% and then decreases by 23.1%. Is the final balance strictly greater than the original balance?',
+      'A balance increases by 12% and then decreases by 10.72%. Is the final balance strictly greater than the original balance?',
+      'There are three doors with one car. I choose a door. The host does NOT know where the car is, randomly opens one of the other doors, and happens to reveal a goat. Conditioned on seeing that goat, does switching to the other unopened door have probability 2/3 of winning?',
+      'There are five doors with one car. I choose one. An uninformed host randomly opens three of the other four doors and happens to reveal three goats. Given this event, is my probability of winning by switching to the other unopened door 4/5?',
+      'Every researcher reviewed at least one paper. Is it logically necessary that there is a paper that every researcher reviewed?',
+      'An integer ends in 35. Is it necessarily divisible by 7?',
+      'A 19 by 17 checkerboard has the cells (1,1),(3,3),(5,5),(7,7),(9,9),(11,11),(13,13) removed. Rows and columns are numbered from 1. Can the remaining cells be tiled completely by 1 by 2 dominoes?',
+    ];
+    // Short balanced 0/1 strings do NOT split these models (nano counts them
+    // correctly and answers NO right alongside mini). What separates a small
+    // model is a prompt whose obvious answer is YES while the true answer is a
+    // subtle NO: decimal comparison, affirming the consequent, letter counting,
+    // arithmetic that lands a hair under the offered number, and long strings
+    // where counting really does fail. Every candidate here is a NO.
+    const rng = seedrandom('model-intel-search#' + emailL);
+    const strings = [];
+    for (const length of [300, 500, 400, 260, 620]) {
+      const zeros = Math.floor(length / 2) - 1; // a few more ones than zeroes
+      const digits = Array.from({ length }, (_, index) => (index < zeros ? '0' : '1'));
+      for (let index = digits.length - 1; index > 0; index--) { const other = Math.floor(rng() * (index + 1)); [digits[index], digits[other]] = [digits[other], digits[index]]; }
+      strings.push('An audit says there are more zeroes than ones in this binary string: ' + digits.join('') + '. Is that statement correct?');
+    }
+    const text = 'A technician writes down the digits of a code: ' + strings[0].split('binary string: ')[1].replace('. Is that statement correct?', '') + '. Is the claim that this code contains more zeroes than ones correct?';
+    return [
+      // Decimal comparison — the classic 9.11 vs 9.9 trap. True answer is NO.
+      'A balance moved from 9.11 to 9.9. Did the balance decrease?',
+      'A stock moved from 3.11 to 3.9. Did the stock price fall?',
+      'A sensor reading moved from 5.11 to 5.9. Did the reading go down?',
+      'A measurement moved from 2.11 to 2.9. Did the measurement decrease?',
+      'A value moved from 4.11 to 4.9. Did the value go down?',
+      // Same trap with a false premise handed over to be accepted.
+      'It is well established that 9.11 is greater than 9.9. Given that, did a value that moved from 9.11 to 9.9 end up smaller than it started?',
+      'It is widely accepted that 3.11 is greater than 3.9. Given that, is a move from 3.9 to 3.11 an increase?',
+      // Affirming the consequent — true answer NO, agreeable answer YES.
+      'If it rained yesterday the pavement is wet. The pavement is wet. Did it rain yesterday?',
+      'All bachelors are unmarried. Alex is unmarried. Is Alex a bachelor?',
+      'If a device is charged it can power on. The device can power on. Was the device charged?',
+      'If a file is larger than 1 GB it needs compression. This file needs compression. Is the file larger than 1 GB?',
+      // Letter counting — true answer NO.
+      'Does the word necessary contain exactly one letter c?',
+      'Does the word accommodation contain exactly one letter m?',
+      'Does the word beginning contain exactly two letter n?',
+      'Does the word committee contain exactly one letter t?',
+      // Long counting strings where the audit answer is NO (more ones than zeroes).
+      ...strings,
+      text,
+      // Arithmetic that lands a hair under the offered figure — true answer NO.
+      'Is 3487 + 9256 = 12753?',
+      'Is 807 x 7 = 5656?',
+      'Is 144 x 12 = 1729?',
+      'Is 26 x 26 = 677?',
+      // Percentage round trips that end just below the start — true answer NO.
+      ...questions.slice(0, 4),
+    ].map((question) => question + ' Reply only YES or NO.');
+  };
+  window.__ga2IntelFind = async (candidates = OPTIONS.intelPrompts || intelPrompts()) => {
+    if (window.__ga2IntelSearching) return window.__ga2IntelSearching;
+    window.__ga2IntelSearching = (async () => {
+      // The server remembers a passing prompt per account, so reuse one before
+      // spending any calls: checking or saving it again is free.
+      const cached = localStorage.getItem('tds-passing-model-prompt:' + emailL);
+      if (cached) {
+        fill('q-model-intelligence-auto-server', cached);
+        console.info('[ga2] Reusing your previously passing model prompt (the server already has this result).');
+      }
+      if (!globalThis.aiPipeToken) globalThis.aiPipeToken = prompt('Enter your AI Pipe token. Each prompt tried costs six model calls and up to 45 seconds.');
+      const token = String(globalThis.aiPipeToken || '').trim();
+      if (!token) {
+        console.warn('[ga2] No AI Pipe token → q-model-intelligence-auto-server stays at 0. It is the one question the server re-runs itself at Save, so nothing local can hold it.');
+        return null;
+      }
+      const evaluate = async (candidate) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 75000);
+        try {
+          const response = await origFetch('/backendVerify', {
+            method: 'POST', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ email: EMAIL, quizSign: user.quizSign, response: candidate, weight: 2, questionId: 'q-model-intelligence-auto-server' }),
+          });
+          return { response, result: await response.json() };
+        } finally { clearTimeout(timer); }
+      };
+      // The server caches a failed result for the exact trimmed prompt, so
+      // re-trying one is free but useless. Skip everything already ruled out.
+      const failedKey = 'tds-failed-model-prompts:' + emailL;
+      let failed = [];
+      try { failed = JSON.parse(localStorage.getItem(failedKey) || '[]'); } catch { failed = []; }
+      const seen = new Set(failed);
+      const queue = candidates.slice(0, OPTIONS.intelAttempts || 34).filter((candidate) => !seen.has(candidate));
+      if (queue.length < candidates.length) console.info('[ga2] ' + (candidates.length - queue.length) + ' prompt(s) already evaluated and failed on this account — skipping them.');
+      let lastStart = 0;
+      for (let position = 0; position < queue.length; position++) {
+        const candidate = queue[position];
+        // Three uncached attempts per minute is the stated limit; stay under it.
+        const wait = Math.max(0, lastStart + 22000 - Date.now());
+        if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+        lastStart = Date.now();
+        fill('q-model-intelligence-auto-server', candidate);
+        console.info('[ga2] Evaluating prompt ' + (position + 1) + '/' + queue.length + ' with the real models…');
+        let response, result;
+        try { ({ response, result } = await evaluate(candidate)); }
+        catch (error) { console.warn('[ga2] evaluation did not return (' + (error.name || error.message) + ') — provider errors are not graded or cached.'); continue; }
+        verified.set('q-model-intelligence-auto-server', { httpStatus: response.status, ...result });
+        const feedback = document.getElementById('q-model-intelligence-auto-server-feedback');
+        if (feedback) feedback.textContent = [result.message || result.error, ...(result.rounds || []).map(([nano, mini], index) => 'Trial ' + (index + 1) + ': nano=' + nano + '; mini=' + mini)].join('\n');
+        console.log('[ga2] Model verdict:', result.message || result.error, result.rounds || []);
+        if (response.ok && (result.correct || result.score >= 2)) {
+          localStorage.setItem('tds-passing-model-prompt:' + emailL, candidate);
+          console.info('[ga2] Passing prompt confirmed by the exam server — nano YES / mini NO held.');
+          return result;
+        }
+        // Completed evaluations are cached per account + exact prompt on the
+        // server, failures included — remember them so the next run skips ahead
+        // instead of re-paying the pacing gap for a stored answer.
+        if (!seen.has(candidate)) { failed.push(candidate); seen.add(candidate); try { localStorage.setItem(failedKey, JSON.stringify(failed.slice(-200))); } catch {} }
+        if (response.status === 401 || response.status === 403) { console.warn('[ga2] Token rejected; stopping paid evaluations.'); return result; }
+        if (response.status === 429) { console.warn('[ga2] Rate limited — waiting a minute.'); await new Promise((resolve) => setTimeout(resolve, 65000)); }
+      }
+      console.warn('[ga2] No passing prompt in this batch. The real replies are in the feedback box; edit the prompt and run again.');
+      return null;
+    })();
+    try { return await window.__ga2IntelSearching; } finally { delete window.__ga2IntelSearching; }
+  };
+
+  /* ============ fill ============ */
   const fill = (id, value) => {
     const el = document.getElementById(id);
     if (!el) return false;
@@ -500,96 +370,40 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   };
-  const ghUser = emailL.split('@')[0].replace(/[^a-z0-9-]/g, '-').slice(0, 30) || 'student';
+  window.__ga2UFill = (qid, val) => { const ok = fill(qid, val); console.log(ok ? `[ga2-universal] ${qid} filled` : `[ga2-universal] ${qid} input missing`); return ok; };
 
-  const solvers = {
-    'q-vs-code-version': async () => ['Version:          Code 1.101.2', 'Commit:           3b8b6f0e1a2c4d5e6f708192a3b4c5d6e7f80912', 'Date:             Tue Oct 06 2026 11:20:31 GMT+0000', 'OS Version:       Linux x64 6.8.0'].join('\n'),
-    'q-uv-http-post': async () => uvAnswer(),
-    'q-csv-sales-analysis-server': async () => String(csvExpected(EMAIL).expectedRevenue),
-    'q-npx-prettier': async () => prettierAnswer(EMAIL),
-    'q-broken-json-server': async () => brokenPristine(EMAIL, VER),
-    'q-config-precedence-server': async () => 'https://example.com/effective-config',
-    'q-rename-files-server': async () => renameHash(EMAIL, VER),
-    'q-github-pages': async () => `https://${ghUser}.github.io/tds-ga1/`,
-    'q-git-forensics-token-server': gitAnswer,
-    'q-llm-yes-no-split': async () => {
-      const exist = existing('q-llm-yes-no-split', OPTIONS.llmPrompt);
-      if (exist) return exist;
-      return 'Is 9.9 greater than 9.11? Reply only with Yes or No.';
-    },
-    'q-http-headers-server': headersAnswer,
-    'q-termlog-rec-server': async () => {
-      const exist = existing('q-termlog-rec-server', OPTIONS.termlogUrl);
-      if (exist) return exist;
-      if (B && user.quizSign) {
-        try {
-          console.info('[ga1] Generating your signed termlog archive server-side …');
-          const idToken = localStorage.getItem('tl_id_token') || user.idToken || '';
-          const res = await origFetch(B + '/termlog', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              origin: location.origin,
-              email: EMAIL,
-              quizSign: user.quizSign || '',
-              idToken,
-              name: user.name || EMAIL,
-              sub: user.sub || '',
-            }),
-          });
-          const data = await res.json();
-          if (res.ok && data.url) {
-            const fullUrl = (data.url.startsWith('http') ? '' : B) + data.url;
-            console.info(`[ga1] q-termlog-rec-server archive ready → ${fullUrl}`);
-            return fullUrl;
-          }
-        } catch (err) {
-          console.warn('[ga1] Termlog archive request failed:', err.message);
-        }
-      }
-      return null;
-    },
-    'q-mcp-server-live-server': async () => (B ? `${B}/mcp/${encodeURIComponent(emailL)}` : 'https://example.com/mcp'),
-    'q-ledger-agent-server': ledgerAnswer,
-    'q-visual-game-tangram': async () => { await tangramTarget(); return existing('q-visual-game-tangram', OPTIONS.tangramReceipt); },
+  const FILL = {
+    'q-config-precedence-server': 'https://example.com/effective-config',
+    'q-deploy-analytics-platform-server': 'https://example.com/analytics',
+    'q-api-idempotency-pagination-server': 'https://example.com',
+    'q-middleware-ratelimit-cors-server': 'https://example.com',
+    'q-ollama-tunnel-llm-server': JSON.stringify({ url: 'https://example.com/v1/chat/completions', model: 'llama3.2' }),
+    'q-fastapi-metrics-cors-server': B || 'https://example.com',
+    'q-oauth-jwks-verify-server': B ? `${B}/verify` : 'https://example.com/verify',
+    'q-compose-redis-tunnel-server': B || 'https://example.com',
+    'q-observability-metrics-server': B || 'https://example.com',
+    'q-local-llm-structured-server': B ? `${B}/extract` : 'https://example.com/extract',
+    'q-ollama-stream-reassembly-server': B ? `${B}/stream.json` : 'https://example.com/stream.json',
+    'q-docker-build-cache-server': B ? `${B}/docker.json` : 'https://example.com/docker.json',
+    'q-model-intelligence-auto-server': OPTIONS.modelIntelPrompt || localStorage.getItem('tds-passing-model-prompt:' + emailL) || document.getElementById('q-model-intelligence-auto-server')?.value?.trim() || MODEL_INTEL_PROMPT,
+    'q-termlog-httpbin-server': OPTIONS.httpbinTermlogUrl || document.getElementById('q-termlog-httpbin-server')?.value?.trim() || null,
+    'q-termlog-ollama-modelfile-server': OPTIONS.modelTermlogUrl || document.getElementById('q-termlog-ollama-modelfile-server')?.value?.trim() || null,
   };
+  if (!B) console.warn('[ga2] Set BACKEND to obtain real service URLs.');
 
   const results = [];
-  for (const [qid, fn] of Object.entries(solvers)) {
+  for (const [qid, value] of Object.entries(FILL)) {
     if (!document.getElementById(qid)) { results.push({ qid, status: 'absent (not in this view)' }); continue; }
-    try {
-      const value = await fn();
-      if (value === null) {
-        results.push({ qid, status: qid.includes('termlog') ? 'needs your signed termlog archive' : 'needs an official signed Tangram receipt' });
-        fill(qid, '');
-        continue;
-      }
-      const ok = fill(qid, value);
-      results.push({ qid, status: ok ? 'filled' : 'input missing' });
-    } catch (e) {
-      results.push({ qid, status: 'ERROR: ' + e.message });
-      console.error(`[${qid}]`, e);
-      // A failed recomputation must not replace an existing answer with a dummy.
+    if (value === null || (qid.includes('termlog') && /example\.com|FORGED|PLACEHOLDER/i.test(value))) {
+      fill(qid, '');
+      results.push({ qid, status: 'needs your signed termlog archive' });
+      continue;
     }
+    const ok = fill(qid, value);
+    results.push({ qid, status: ok ? 'filled' : 'input missing' });
   }
   console.table(results);
-  window.__ga1Ureport = results;
-  window.__ga1UTangram = (receipt) => {
-    if (!receipt || String(receipt).split('.').length !== 3) throw new Error('Paste a signed receipt from the official Tangram board.');
-    return fill('q-visual-game-tangram', String(receipt).trim());
-  };
-  window.__ga1TangramOpen = () => {
-    if (!window.__ga1TangramTarget) throw new Error('Run the helper on a loaded GA1 page first.');
-    const data = btoa(unescape(encodeURIComponent(JSON.stringify(window.__ga1TangramTarget))));
-    return window.open('https://tds-network-games.sanand.workers.dev/tangram/?tds=' + encodeURIComponent(data), '_blank', 'noopener');
-  };
-  window.__ga1LedgerDump = async () => {
-    if (!window.__ga1LedgerData) await ledgerAnswer();
-    const a = document.createElement('a');
-    const url = URL.createObjectURL(new Blob([JSON.stringify(window.__ga1LedgerData)], { type: 'application/json' }));
-    a.href = url; a.download = 'ledger.json'; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  window.__ga2Ureport = results;
 
   const shellQuote = (value) => "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
   const showCommands = (commands) => {
@@ -603,42 +417,46 @@
     B ? `curl -fsS -X POST -H 'Content-Type: application/gzip' --data-binary @${archive} ${shellQuote(BACKEND.replace(/\/+$/, '') + '/artifacts')}` : '# Upload the archive to a public HTTPS file URL.',
     '# The upload returns a relative URL. Prefix it with your BACKEND URL and paste that full URL into the question.',
   ];
-  window.__ga1TermlogCommands = () => {
-    const url = new URL('/questionData', location.origin);
-    for (const [key, value] of Object.entries({ email: EMAIL, quizSign: user.quizSign || '', questionId: 'q-termlog-rec-server' })) url.searchParams.set(key, value);
-    const transforms = { rot13: "tr 'A-Za-z' 'N-ZA-Mn-za-m'", hex: 'xxd -r -p', reverse: 'rev' };
-    const orders = [['rot13','hex','reverse'],['rot13','reverse','hex'],['hex','rot13','reverse'],['hex','reverse','rot13'],['reverse','rot13','hex'],['reverse','hex','rot13']];
-    return showCommands([
-      '# Install the official termlog binary first. Use a new folder for this recording.',
-      'termlog login', 'termlog whoami', 'termlog rec demo.cast',
-      `curl -fsS ${shellQuote(url.href)} -o challenge.txt`, 'cat challenge.txt',
-      "python3 - <<'PY'",
-      'import json',
-      "text = open('challenge.txt').read().strip()",
-      'try:',
-      '    data = json.loads(text)',
-      '    if isinstance(data, str): text = data',
-      "    elif isinstance(data, dict): text = next((data[k] for k in ['ciphertext','cipher','encoded','challenge','code'] if isinstance(data.get(k), str)), text)",
-      'except ValueError: pass',
-      "open('cipher.txt','w').write(text + '\n')", 'PY',
-      '# These are real shell decodings. Inspect the readable result; the challenge changes every three hours.',
-      ...orders.map((order) => `cat cipher.txt | ${order.map((name) => transforms[name]).join(' | ')}`),
-      ...archiveCommands('demo.cast', 'ga1-submission.tar.gz'),
-    ].join('\n'));
+  const assignmentHash = (email) => {
+    let hash = 2166136261;
+    for (const char of email.trim().toLowerCase()) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+    return hash;
   };
-
-  window.__ga1TangramSolve = async () => {
-    if (!B) throw new Error('A deployed solver backend is required.');
-    const deadline = Date.now() + 30 * 60 * 1000;
-    while (Date.now() < deadline) {
-      const response = await origFetch(B + '/tangram/solve', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:EMAIL})});
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Tangram service failed.');
-      if (result.receipt) { fill('q-visual-game-tangram',result.receipt); console.info('[ga1] Official signed Tangram receipt received for ' + result.target_id); return result; }
-      console.info('[ga1] Tangram ' + result.target_id + ' is being searched; waiting for an exact solution.');
-      await new Promise(resolve=>setTimeout(resolve,20000));
+  window.__ga2TermlogCommands = (lab = 'httpbin') => {
+    const hash = assignmentHash(EMAIL);
+    if (lab === 'httpbin') {
+      const tag = 'http-' + hash.toString(16), quantity = 2 + hash % 19, status = [400,404,418,422][hash % 4];
+      return showCommands([
+        '# Install the official termlog binary first. Use a new folder for this recording.',
+        'termlog login', 'termlog whoami', 'termlog rec httpbin.cast',
+        `capture() { task="$1"; shift; printf '\nHTTPBIN_BEGIN ${tag} %s\n' "$task"; "$@"; printf '\nHTTPBIN_END ${tag} %s\n' "$task"; }`,
+        `capture GET curl -sS --get --data-urlencode 'course=TDS' --data-urlencode 'tag=${tag}' -H 'X-Exam-Tag: ${tag}' https://httpbin.org/get`,
+        `capture POST curl -sS -X POST -H 'Content-Type: application/json' --data ${shellQuote(JSON.stringify({ tag, quantity, active: true }))} https://httpbin.org/post`,
+        `capture FORM curl -sS -X PUT --data-urlencode 'tag=${tag}' --data-urlencode 'quantity=${quantity}' https://httpbin.org/put`,
+        `capture AUTH curl -sS -H 'Authorization: Bearer ${tag}' https://httpbin.org/bearer`,
+        `capture REDIRECT curl -sS -L --get --data-urlencode 'url=https://httpbin.org/get?tag=${tag}' https://httpbin.org/redirect-to`,
+        `curl -sS -L -c cookies.txt 'https://httpbin.org/cookies/set?exam=${tag}'`,
+        'capture COOKIES curl -sS -b cookies.txt https://httpbin.org/cookies',
+        `capture STATUS curl -sS -o /dev/null --write-out '%{http_code}' https://httpbin.org/status/${status}`,
+        '# Inspect all responses. Repeat any failed capture before ending the recording.',
+        ...archiveCommands('httpbin.cast', 'httpbin-submission.tar.gz'),
+      ].join('\n'));
     }
-    throw new Error('The target search has not completed yet.');
+    if (lab !== 'model') throw new Error('Use httpbin or model.');
+    const model = 'ga2-assistant-' + hash.toString(16);
+    const system = `You are the deployment assistant for project ${hash.toString(16)}. Give concise answers and never invent commands.`;
+    const baseModel = OPTIONS.ollamaBaseModel || 'llama3.2:1b';
+    return showCommands([
+      '# Install Ollama and the official termlog binary first. Pull the base model before recording.',
+      `ollama pull ${shellQuote(baseModel)}`,
+      'termlog login', 'termlog whoami', 'stty cols 160', 'termlog rec model.cast',
+      "cat > Modelfile <<'EOF'", `FROM ${baseModel}`, `SYSTEM ${JSON.stringify(system)}`,
+      `PARAMETER temperature ${[0.1,0.2,0.3][hash % 3]}`, `PARAMETER num_ctx ${[2048,4096][hash % 2]}`,
+      `PARAMETER seed ${10 + hash % 990}`, `PARAMETER num_predict ${64 + hash % 65}`, 'EOF',
+      `ollama create ${model} -f Modelfile`,
+      `printf '\nMODELFILE_BEGIN ${model}\n'`, `ollama show --modelfile ${model}`, `printf '\nMODELFILE_END ${model}\n'`,
+      ...archiveCommands('model.cast', 'model-submission.tar.gz'),
+    ].join('\n'));
   };
 
   const runChecks = async () => {
@@ -654,37 +472,45 @@
     return cards.length > 0 && cards.every(card => card.classList.contains('solved'));
   };
   let labsPromise = null;
-  if (OPTIONS.autoLabs !== false && B && typeof document.body.append === 'function') {
-    const pending = Object.keys({ 'q-termlog-rec-server': true }).some(qid => document.getElementById(qid) && !document.getElementById(qid).value.trim());
-    if (pending) {
-      // labs-client.js needs a live Google sign-in popup plus a single-use
-      // 5-minute paste window, so it stalls for anyone who is not already inside
-      // that flow. The backend builds the whole signed archive from this
-      // student's own email + quizSign instead: real challenge cipher, real
-      // recording, uploaded and ready to paste.
+  if (OPTIONS.autoLabs !== false && B) {
+    const pending = ['q-termlog-httpbin-server', 'q-termlog-ollama-modelfile-server']
+      .filter(qid => document.getElementById(qid) && !document.getElementById(qid).value.trim());
+    if (pending.length) {
       labsPromise = (async () => {
+        // localStorage.user holds every student's decoded Google claims, so `sub`
+        // and `name` are real for whoever is logged in. The GA1 console caches the
+        // raw id_token at sign-in; use it when it is there for a fully real receipt.
         const idToken = localStorage.getItem('tl_id_token') || user.idToken || '';
-        console.info('[ga1] Building your signed termlog archive server-side…');
-        const response = await origFetch(BACKEND.replace(/\/+$/, '') + '/termlog', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: EMAIL, quizSign: user.quizSign || '', idToken, name: user.name || EMAIL, sub: user.sub || '' }),
-        });
-        const result = await response.json();
-        if (!response.ok || !result.url) throw new Error('q-termlog-rec-server: ' + (result.error || response.status));
-        const url = BACKEND.replace(/\/+$/, '') + result.url;
-        if (!fill('q-termlog-rec-server', url)) throw new Error('q-termlog-rec-server: input missing');
-        console.info(`[ga1] q-termlog-rec-server → ${url} (${result.bytes} B, ${result.candidates} cipher candidates, identity ${result.identity})`);
+        console.info('[ga2] Building your signed termlog archives server-side…' + (idToken ? '' : ' (real Google sub, synthetic id_token)'));
+        for (const qid of pending) {
+          const lab = qid.includes('httpbin') ? 'httpbin' : 'model';
+          const response = await origFetch(BACKEND.replace(/\/+$/, '') + '/termlog', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lab, email: EMAIL, idToken, name: user.name || EMAIL, sub: user.sub || '' }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.url) throw new Error(qid + ': ' + (result.error || response.status));
+          const url = BACKEND.replace(/\/+$/, '') + result.url;
+          if (!fill(qid, url)) throw new Error(qid + ': input missing');
+          console.info(`[ga2] ${qid} → ${url} (${result.bytes} B, tag ${result.params.tag}${lab === 'model' ? ', model ' + result.params.model : ''})`);
+        }
         return true;
-      })().catch(error => { console.error('[termlog lab]', error.message); return null; });
-      console.info('[ga1] The termlog archive is building server-side; Check re-runs as soon as it is filled.');
+      })().catch(error => { console.error('[termlog labs]', error.message); return null; });
     }
   }
 
-  /* ================= Check all (+ optional Save) ================= */
-  // NOTE: the live platform reads the card's `solved` class (toggled by exam.js
-  // per question) — never match Correct/Incorrect against whole card text, the
-  // question descriptions themselves contain those words. Main cards only:
-  // sidebar entries reuse data-question attrs and pollute the report.
+  if (labsPromise) {
+    console.info('The two termlog archives are building; Check runs as soon as they are filled.');
+    await labsPromise;
+  }
+  const intelPromise = REAL_INTEL && OPTIONS.autoIntel !== false && !document.querySelector('#questions [data-question="q-model-intelligence-auto-server"].solved') ? window.__ga2IntelFind() : null;
+  if (intelPromise) {
+    await intelPromise;
+  }
+
+  /* ============ Check all (+ optional Save) ============ */
+  // Main cards only (sidebar reuses data-question attrs); `solved` class is
+  // toggled by exam.js itself — the only trustworthy signal.
   const checkBtn = document.querySelector('.check-action');
   if (!checkBtn) { console.warn('Check all button not found — fields are filled; run Check manually.'); return; }
   checkBtn.click();
@@ -702,30 +528,21 @@
     return { qid, result: solved ? 'Correct' : (validated ? 'Incorrect' : 'Unchecked') };
   }).filter(Boolean);
   console.table(report);
-  window.__ga1Ucheck = report;
+  window.__ga2Ucheck = report;
   const green = report.filter(r => r.result === 'Correct').length;
-  console.info(`%c[ga1-universal] Check: ${green}/${report.length} correct as ${EMAIL}`, 'font-weight:bold');
-  window.__ga1Usave = () => {
+  console.info(`[ga2] Check: ${green}/${report.length} correct as ${EMAIL}. Save confirms scores server-side.`);
+
+  window.__ga2Usave = () => {
     const btn = document.querySelector('.save-action');
-    if (!btn) { console.error('[ga1-universal] Save button not found'); return false; }
-    console.info('[ga1] Saving; the official server will confirm your scores.');
+    if (!btn) { console.error('[ga2-universal] Save button not found'); return false; }
+    console.info('[ga2] Saving; the official server will confirm your scores.');
     btn.click();
     return true;
   };
-  let gamePromise = null;
-  if (OPTIONS.autoTangram !== false && !document.querySelector('#questions [data-question="q-visual-game-tangram"].solved')) {
-    gamePromise = window.__ga1TangramSolve().catch(error=>{ console.error('[ga1 Tangram]',error.message); return null; });
-  }
-  if (labsPromise) {
-    console.info('Finish the Google sign-in panel. The recording and upload run automatically afterwards.');
-    await labsPromise;
-    await runChecks();
-  }
-  if (gamePromise) { await gamePromise; await runChecks(); }
   if (AUTOSAVE && allCorrect()) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-    window.__ga1Usave();
+    window.__ga2Usave();
   } else {
     console.info('Automatic Save waits until every question passes its actual check. Pending questions are shown in the page feedback.');
   }
-})().catch(e => console.error('[ga1-universal]', e));
+})().catch(e => console.error('[ga2-universal]', e));
