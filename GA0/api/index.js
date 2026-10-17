@@ -1,7 +1,7 @@
 import { computeBaseEffective, resolveEffectiveConfig, rt } from "./configPrecedence.js";
 import { handleMcpRpc } from "./mcpServer.js";
 import { setupGitHubPages } from "./githubPages.js";
-import { handleServerRequest } from "../../server.mjs";
+import { handleServerRequest } from "./server.mjs";
 import seedrandom from "seedrandom";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
