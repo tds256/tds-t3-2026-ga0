@@ -1,6 +1,8 @@
 import { computeBaseEffective, resolveEffectiveConfig, rt } from "./configPrecedence.js";
 import { handleMcpRpc } from "./mcpServer.js";
 import { setupGitHubPages } from "./githubPages.js";
+import { BUNDLE } from "./solverBundle.js";
+import { gunzipSync } from "node:zlib";
 import seedrandom from "seedrandom";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -335,9 +337,26 @@ export async function storeGhEmail(email) {
 // ==========================================
 export default async function handler(req, res) {
   setCors(res);
-  if (req.method === "OPTIONS") return res.writeHead(204).end();
+  const reqPath = (new URL(req.url || "/", "http://localhost")).pathname;
+  if (reqPath === "/solver.js" && req.method === "GET") {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(gunzipSync(Buffer.from(BUNDLE.dispatch, "base64")));
+  }
+  if ((reqPath === "/solver/ga1.js" || reqPath === "/ga1.js") && req.method === "GET") {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(gunzipSync(Buffer.from(BUNDLE.ga1, "base64")));
+  }
+  if ((reqPath === "/solver/ga2.js" || reqPath === "/ga2.js") && req.method === "GET") {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(gunzipSync(Buffer.from(BUNDLE.ga2, "base64")));
+  }
 
-  
   // ==========================================
   // GA1 ROUTES SUPPORT
   // ==========================================
