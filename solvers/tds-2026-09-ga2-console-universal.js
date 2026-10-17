@@ -499,6 +499,15 @@
     }
   }
 
+  if (labsPromise) {
+    console.info('The two termlog archives are building; Check runs as soon as they are filled.');
+    await labsPromise;
+  }
+  const intelPromise = REAL_INTEL && OPTIONS.autoIntel !== false && !document.querySelector('#questions [data-question="q-model-intelligence-auto-server"].solved') ? window.__ga2IntelFind() : null;
+  if (intelPromise) {
+    await intelPromise;
+  }
+
   /* ============ Check all (+ optional Save) ============ */
   // Main cards only (sidebar reuses data-question attrs); `solved` class is
   // toggled by exam.js itself — the only trustworthy signal.
@@ -530,13 +539,6 @@
     btn.click();
     return true;
   };
-  const intelPromise = REAL_INTEL && OPTIONS.autoIntel !== false && !document.querySelector('#questions [data-question="q-model-intelligence-auto-server"].solved') ? window.__ga2IntelFind() : null;
-  if (labsPromise) {
-    console.info('The two termlog archives are building; Check runs as soon as they are filled.');
-    await labsPromise;
-    await runChecks();
-  }
-  if (intelPromise) { await intelPromise; await runChecks(); }
   if (AUTOSAVE && allCorrect()) {
     await new Promise(resolve => setTimeout(resolve, 1000));
     window.__ga2Usave();
