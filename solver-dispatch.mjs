@@ -10,6 +10,11 @@
   const BASE = 'https://tds-t3-2026-ga0-ngrok.vercel.app';
   const path = location.pathname;
 
+  console.info(
+    '%c🛡️ [TDS Solver Notice] Ensure ad-blockers (Brave Shields, uBlock Origin, AdBlock) are disabled for exam.sanand.workers.dev and your solver backend to prevent blocking verification endpoints.',
+    'background: #fff3cd; color: #856404; padding: 6px 12px; border-radius: 4px; font-weight: bold; border-left: 5px solid #ffeeba; display: block; margin: 4px 0;'
+  );
+
   const QUIZZES = [
     { id: 'sutd', match: /sutd/i, script: '/solver/sutd.js' },
     { id: 'ga2', match: /-ga2\b/i, script: '/solver/ga2.js' },

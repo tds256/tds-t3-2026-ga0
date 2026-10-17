@@ -20,6 +20,10 @@
   const VER = user.version ?? '';
   const emailL = EMAIL.trim().toLowerCase();
   const B = BACKEND ? BACKEND.replace(/\/+$/, '') + '/s/' + encodeURIComponent(EMAIL) : null;
+  console.info(
+    '%c🛡️ [TDS Solver Notice] Ensure ad-blockers (Brave Shields, uBlock Origin, AdBlock) are disabled for exam.sanand.workers.dev and your solver backend to prevent blocking verification endpoints.',
+    'background: #fff3cd; color: #856404; padding: 6px 12px; border-radius: 4px; font-weight: bold; border-left: 5px solid #ffeeba; display: block; margin: 4px 0;'
+  );
   const MODEL_INTEL_PROMPT = OPTIONS.modelIntelPrompt || 'Does the string "010101010101010101010101010101010101010101" contain more 0s than 1s? Answer only YES or NO.';
   // Only a REAL evaluation survives Save. The exam server stores the six replies
   // per account + exact trimmed prompt, so a check that never ran server-side
