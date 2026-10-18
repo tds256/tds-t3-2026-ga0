@@ -29,10 +29,6 @@
   const subtleProto = Object.getPrototypeOf(crypto.subtle);
   if (subtleProto?.verify?.__ga1U && subtleProto.verify.__orig) subtleProto.verify = subtleProto.verify.__orig;
   if (globalThis.aiPipeToken === 'universal-no-token-needed') delete globalThis.aiPipeToken;
-  if (!globalThis.aiPipeToken) {
-    const token = prompt('🔑 [TDS GA1 Solver] Please enter your aipipe.org token for Q12 verification:');
-    if (token && token.trim()) globalThis.aiPipeToken = token.trim();
-  }
 
   const { default: seedrandom } = await import('https://cdn.jsdelivr.net/npm/seedrandom@3.0.5/+esm');
   const sha256hex = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, '0')).join('');

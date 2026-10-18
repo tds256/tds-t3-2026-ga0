@@ -33,7 +33,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import seedrandom from 'seedrandom';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile, readdir, stat, unlink } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { buildLedgerStore, ledgerAnswerOne } from './ledger.mjs';
 import { extractInvoice } from './invoice.mjs';
@@ -151,6 +151,9 @@ function dockerAnswer(email) {
 
 /* ================= state (partitioned by email) ================= */
 const RATE_WINDOW = 10.0;
+const INACTIVE_STUDENT_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const MAX_CACHED_LEDGERS = 6;
+
 const buckets = new Map();   // `${email}|${kind}:${cid}` -> [timestamps]
 const idemKeys = new Map();  // `${email}` -> Map(key -> order)
 const orderSeq = new Map();  // `${email}` -> n
@@ -158,8 +161,24 @@ const obsCount = new Map();  // `${email}` -> n
 const obsLogs = new Map();   // `${email}` -> [{level,ts,path,request_id,method,status}]
 const obsStart = new Map();  // `${email}` -> epoch sec
 const composeCounts = new Map(); // `${email}|${key}` -> n
-const ledgers = new Map();   // lowercased email -> {records, F}
+const ledgers = new Map();   // lowercased email -> { store, lastUsed }
 const invoiceDiagnostics = new Map(); // Last synthetic grader invoice, in memory only.
+const studentLastSeen = new Map();    // email -> timestamp
+const scriptCache = new Map();        // relativePath -> string
+
+function touchStudent(email) {
+  if (!email) return;
+  studentLastSeen.set(String(email).trim().toLowerCase(), Date.now());
+}
+
+async function getCachedScript(relativePath) {
+  let content = scriptCache.get(relativePath);
+  if (!content) {
+    content = await readFile(new URL(relativePath, import.meta.url), 'utf8');
+    scriptCache.set(relativePath, content);
+  }
+  return content;
+}
 
 function rateTake(key, limit) {
   const now = Date.now() / 1000;
@@ -173,13 +192,78 @@ function rateTake(key, limit) {
   dq.push(now);
   return { ok: true };
 }
+
+async function cleanupOldArtifacts() {
+  try {
+    const artDir = join(DATA_DIR, 'artifacts');
+    const files = await readdir(artDir).catch(() => []);
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    for (const f of files) {
+      if (!f.endsWith('.tar.gz')) continue;
+      const p = join(artDir, f);
+      try {
+        const s = await stat(p);
+        if (s.mtimeMs < twoHoursAgo) await unlink(p);
+      } catch {}
+    }
+  } catch {}
+}
+
 setInterval(() => {
-  const now = Date.now() / 1000;
+  const now = Date.now();
+  const nowSec = now / 1000;
+
+  // 1. Clean rate-limit buckets
   for (const [k, dq] of buckets) {
-    while (dq.length && now - dq[0] > RATE_WINDOW) dq.shift();
+    while (dq.length && nowSec - dq[0] > RATE_WINDOW) dq.shift();
     if (!dq.length) buckets.delete(k);
   }
-}, 30000).unref();
+
+  // 2. Clean inactive students (> 20 min)
+  for (const [email, lastSeen] of studentLastSeen) {
+    if (now - lastSeen > INACTIVE_STUDENT_TTL_MS) {
+      studentLastSeen.delete(email);
+      obsLogs.delete(email);
+      obsCount.delete(email);
+      obsStart.delete(email);
+      idemKeys.delete(email);
+      orderSeq.delete(email);
+      ledgers.delete(email);
+      invoiceDiagnostics.delete(email);
+      for (const k of composeCounts.keys()) {
+        if (k.startsWith(`${email}|`)) composeCounts.delete(k);
+      }
+      for (const k of buckets.keys()) {
+        if (k.startsWith(`${email}|`)) buckets.delete(k);
+      }
+    }
+  }
+
+  // 3. Safety cap on studentLastSeen if huge spike occurs
+  if (studentLastSeen.size > 150) {
+    const sorted = [...studentLastSeen.entries()].sort((a, b) => a[1] - b[1]);
+    for (let i = 0; i < sorted.length - 100; i++) {
+      const email = sorted[i][0];
+      studentLastSeen.delete(email);
+      obsLogs.delete(email);
+      obsCount.delete(email);
+      obsStart.delete(email);
+      idemKeys.delete(email);
+      orderSeq.delete(email);
+      ledgers.delete(email);
+      invoiceDiagnostics.delete(email);
+      for (const k of composeCounts.keys()) {
+        if (k.startsWith(`${email}|`)) composeCounts.delete(k);
+      }
+      for (const k of buckets.keys()) {
+        if (k.startsWith(`${email}|`)) buckets.delete(k);
+      }
+    }
+  }
+
+  // 4. Prune artifacts older than 2 hours from disk
+  cleanupOldArtifacts();
+}, 60000).unref();
 
 /* ================= helpers ================= */
 const sendJson = (res, code, obj, extra = {}) => {
@@ -212,19 +296,34 @@ dQIDAQAB
 
 /* ================= ledger storage ================= */
 const ledgerFile = (email) => join(DATA_DIR, crypto.createHash('sha256').update(email).digest('hex') + '.json');
+
+function touchLedger(email, store) {
+  ledgers.delete(email);
+  ledgers.set(email, { store, lastUsed: Date.now() });
+  while (ledgers.size > MAX_CACHED_LEDGERS) {
+    const oldestKey = ledgers.keys().next().value;
+    ledgers.delete(oldestKey);
+  }
+}
+
 async function persistLedger(email, raw, store) {
   await mkdir(DATA_DIR, { recursive: true });
   const file = ledgerFile(email);
   const temp = file + '.' + crypto.randomUUID() + '.tmp';
   await writeFile(temp, JSON.stringify(raw), { mode: 0o600 });
   await rename(temp, file);
-  ledgers.set(email, store);
+  touchLedger(email, store);
 }
+
 async function loadLedger(email) {
-  if (ledgers.has(email)) return ledgers.get(email);
+  const cached = ledgers.get(email);
+  if (cached) {
+    touchLedger(email, cached.store);
+    return cached.store;
+  }
   try {
     const store = buildLedgerStore(JSON.parse(await readFile(ledgerFile(email), 'utf8')));
-    ledgers.set(email, store);
+    touchLedger(email, store);
     return store;
   } catch (error) {
     if (error.code === 'ENOENT') return null;
@@ -308,7 +407,7 @@ async function handleServerRequest(req, res) {
       return sendJson(res, 200, { ok: true, time: Date.now(), revision: REVISION, features: ['ledger-export-rates', 'invoice-vendor-punctuation', 'signed-archive-hosting', 'ga2-termlog-labs'] }, acaostar);
     }
     if (path === '/labs-client.js' && method === 'GET') {
-      const source = await readFile(new URL('./labs-client.mjs', import.meta.url), 'utf8');
+      const source = await getCachedScript('./labs-client.mjs');
       res.writeHead(200, { ...acaostar, 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store' });
       return res.end(source);
     }
@@ -317,7 +416,7 @@ async function handleServerRequest(req, res) {
     if ((path === '/solver.js' || /^\/solver\/(ga1|ga2)\.js$/.test(path)) && method === 'GET') {
       const file = path === '/solver.js' ? './solver-dispatch.mjs' : `./solvers/tds-2026-09-${/ga2/.test(path) ? 'ga2' : 'ga1'}-console-universal.js`;
       let source;
-      try { source = await readFile(new URL(file, import.meta.url), 'utf8'); }
+      try { source = await getCachedScript(file); }
       catch { return sendJson(res, 404, { error: 'Unknown solver script.' }, acaostar); }
       res.writeHead(200, { ...acaostar, 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store' });
       return res.end(source);
@@ -468,6 +567,7 @@ async function handleServerRequest(req, res) {
         return res.end();
       }
       if (!email) return sendJson(res, 400, { error: 'missing email in /mcp/<email>' }, acaostar);
+      touchStudent(email);
       if (method !== 'POST') return sendJson(res, 405, { error: 'POST only' }, acaostar);
       const raw = await readBody(req);
       const out = [];
@@ -497,6 +597,7 @@ async function handleServerRequest(req, res) {
     /* ---- ledger upload: POST /ledger/<email> {ledger: ...} (or raw) ---- */
     if (segs[0] === 'ledger' && emailSeg(1)) {
       const email = emailSeg(1).toLowerCase();
+      touchStudent(email);
       if (method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': allowHeaders });
         return res.end();
@@ -518,6 +619,7 @@ async function handleServerRequest(req, res) {
     /* ---- ledger QA: POST /answer/<email> (3 payload shapes, port of ledger-agent) ---- */
     if (segs[0] === 'answer' && emailSeg(1)) {
       const email = emailSeg(1).toLowerCase();
+      touchStudent(email);
       if (method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': allowHeaders });
         return res.end();
@@ -548,6 +650,7 @@ async function handleServerRequest(req, res) {
     if (segs[0] === 's' && emailSeg(1)) {
       const email = emailSeg(1);
       const emailL = email.trim().toLowerCase();
+      touchStudent(emailL);
       const sub = '/' + segs.slice(2).join('/');
       const q = u.searchParams;
 
@@ -601,15 +704,32 @@ async function handleServerRequest(req, res) {
       /* GET /stats?values= (fastapi metrics) */
       if (sub === '/stats' && method === 'GET') {
         const t0 = process.hrtime.bigint();
-        const nums = String(q.get('values') || '').split(',').map((x) => x.trim()).filter(Boolean).map(Number).filter((n) => Number.isFinite(n)).map((n) => Math.trunc(n));
+        const raw = String(q.get('values') || '');
+        const parts = raw.split(',');
+        let count = 0;
+        let sum = 0;
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = 0; i < parts.length; i++) {
+          const s = parts[i].trim();
+          if (!s) continue;
+          const n = Math.trunc(Number(s));
+          if (!Number.isFinite(n)) continue;
+          count++;
+          sum += n;
+          if (n < min) min = n;
+          if (n > max) max = n;
+        }
+        if (count === 0) { min = 0; max = 0; }
+        const mean = count ? sum / count : 0.0;
         const dt = Number(process.hrtime.bigint() - t0) / 1e9;
         return sendJson(res, 200, {
           email,
-          count: nums.length,
-          sum: nums.reduce((a, b) => a + b, 0),
-          min: nums.length ? Math.min(...nums) : 0,
-          max: nums.length ? Math.max(...nums) : 0,
-          mean: nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0.0,
+          count,
+          sum,
+          min,
+          max,
+          mean,
         }, withCors({ 'X-Request-ID': crypto.randomUUID(), 'X-Process-Time': dt.toFixed(6), 'Access-Control-Expose-Headers': expose }));
       }
 
@@ -748,7 +868,7 @@ async function handleServerRequest(req, res) {
           const found = extractInvoice(text);
           if (typeof text === 'string' && text.trim()) {
             invoiceDiagnostics.set(emailL, { time: Date.now(), status: found ? 200 : 422, text: text.slice(0, 2000), result: found });
-            if (invoiceDiagnostics.size > 1000) invoiceDiagnostics.delete(invoiceDiagnostics.keys().next().value);
+            if (invoiceDiagnostics.size > 100) invoiceDiagnostics.delete(invoiceDiagnostics.keys().next().value);
           }
           if (!found) return sendJson(res, 422, { error: 'could not extract invoice fields', vendor: '', amount: 0, currency: '', date: '' }, withCors());
           return sendJson(res, 200, found, withCors());
@@ -787,11 +907,12 @@ async function handleServerRequest(req, res) {
 
   function int0(v) { const n = parseInt(v, 10); if (!Number.isFinite(n)) throw new Error('bad cursor'); return n; }
   function obsBump(em, p, m) {
+    touchStudent(em);
     if (!obsStart.has(em)) obsStart.set(em, Date.now() / 1000);
     obsCount.set(em, (obsCount.get(em) || 0) + 1);
     const arr = obsLogs.get(em) || [];
     arr.push({ level: 'info', ts: Date.now() / 1000, path: p, request_id: crypto.randomUUID(), method: m, status: 200 });
-    while (arr.length > 5000) arr.shift();
+    while (arr.length > 100) arr.shift();
     obsLogs.set(em, arr);
   }
   function obsRid() { return { 'X-Request-ID': crypto.randomUUID() }; }

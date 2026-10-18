@@ -184,6 +184,7 @@ export function createLabManager({ dataDir, termlog = process.env.TERMLOG_BIN ||
       await mkdir(join(dir, 'config'), { recursive: true, mode: 0o700 });
       const job = { id, token, email, dir, authDir, tasks, challengeUrl, status: 'starting', message: 'Checking your login.', artifacts: {}, created: Date.now(), loginDiag: '' };
       jobs.set(id, job);
+      while (jobs.size > 50) jobs.delete(jobs.keys().next().value);
       // Bring-your-own login: the browser sign-in flow cannot survive this
       // host's localhost probing, so the user logs in locally (same machine,
       // always works) and pastes auth.json. No listener, no race, no timeout.
