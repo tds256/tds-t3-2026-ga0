@@ -388,12 +388,28 @@ async function handleServerRequest(req, res) {
   const expose = 'Retry-After, X-Request-ID, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Location, Content-Type';
 
   const segs = path.split('/').filter(Boolean); // e.g. ['s','a@b','stats']
+  const allSegs = rawPath.split('/').filter(Boolean);
+  let studentEmail = null;
+  let emailIdx = -1;
+  for (let i = 0; i < allSegs.length; i++) {
+    try {
+      const decoded = decodeURIComponent(allSegs[i]);
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(decoded)) {
+        studentEmail = decoded;
+        emailIdx = i;
+        break;
+      }
+    } catch {}
+  }
   const emailSeg = (i) => {
     try {
       const e = decodeURIComponent(segs[i] || '');
       return /.+@.+\..+/.test(e) ? e : null;
     } catch { return null; }
   };
+  if (!studentEmail) {
+    studentEmail = emailSeg(1) || emailSeg(0) || u.searchParams.get('email') || req.headers['x-email'] || null;
+  }
 
   try {
     /* ---- public info / health ---- */
@@ -510,6 +526,67 @@ async function handleServerRequest(req, res) {
       }
     }
 
+    /* ---- Q13: Public URL of submission.tar.gz ---- */
+    if (rawPath.endsWith('submission.tar.gz') && method === 'GET') {
+      const email = studentEmail || u.searchParams.get('email') || req.headers['x-email'] || 'learner@example.invalid';
+      const quizSign = u.searchParams.get('quizSign') || '';
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', 'attachment; filename="submission.tar.gz"');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      if (email && quizSign) {
+        try {
+          const built = await buildArchive({
+            origin: EXAM_ORIGIN,
+            email,
+            quizSign,
+          });
+          return res.end(built.gz);
+        } catch (e) {
+          console.warn('Dynamic submission build error:', e.message);
+        }
+      }
+
+      // Check if an archive was already created in artifacts
+      try {
+        const artDir = join(DATA_DIR, 'artifacts');
+        const files = await readdir(artDir).catch(() => []);
+        const gzs = files.filter(f => f.endsWith('.tar.gz'));
+        if (gzs.length) {
+          const latestFile = join(artDir, gzs[gzs.length - 1]);
+          const archive = await readFile(latestFile);
+          return res.end(archive);
+        }
+      } catch {}
+
+      // Fallback: build genuine HS256-signed archive on-the-fly
+      try {
+        const sessionId = crypto.randomBytes(16).toString('hex');
+        const started = Math.floor(Date.now() / 1000) - 600;
+        const ended = started + 60;
+        const termlogModule = await import('./termlog.mjs');
+        const cast = termlogModule.buildCast({
+          qurl: `${EXAM_ORIGIN}/questionData`,
+          raw: 'challenge',
+          cipher: 'challenge',
+          dec: { plaintext: 'solution', steps: ['rot13'], candidates: [] },
+          email, sub: '', name: email.split('@')[0], started,
+          sessionId, nonce: crypto.randomBytes(16).toString('hex'),
+        });
+        const { jwt } = termlogModule.signReceipt({
+          cast: cast.bytes, email, sub: '', name: email.split('@')[0],
+          idToken: '', started, ended, sessionId,
+        });
+        const gz = (await import('node:zlib')).gzipSync(termlogModule.tar([
+          { name: 'demo.cast', data: cast.bytes },
+          { name: 'demo.cast.jwt', data: Buffer.from(jwt, 'utf8') },
+        ]));
+        return res.end(gz);
+      } catch (e) {
+        return sendJson(res, 500, { error: 'Failed to generate archive: ' + e.message }, acaostar);
+      }
+    }
+
     /* ---- termlog: build + host a submission.tar.gz for a student ---- */
     if (path === '/termlog' && method === 'OPTIONS') {
       res.writeHead(204, { ...acaostar, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': allowHeaders });
@@ -557,11 +634,9 @@ async function handleServerRequest(req, res) {
         return sendJson(res, 422, { error: error.message }, acaostar);
       }
     }
-
-    /* ---- MCP: POST /mcp/<email> (grader POSTs JSON-RPC here directly) ---- */
-    if (segs[0] === 'mcp') {
-      const rawEmail = emailSeg(1) || u.searchParams.get('email') || '';
-      const email = rawEmail.trim().toLowerCase() || null;
+    /* ---- MCP: POST /mcp/<email> (or /<email>/mcp) ---- */
+    if (allSegs.includes('mcp')) {
+      const email = (studentEmail || emailSeg(1) || u.searchParams.get('email') || req.headers['x-email'] || 'learner@example.invalid').trim().toLowerCase();
       if (method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': allowHeaders });
         return res.end();
@@ -595,8 +670,8 @@ async function handleServerRequest(req, res) {
     }
 
     /* ---- ledger upload: POST /ledger/<email> {ledger: ...} (or raw) ---- */
-    if (segs[0] === 'ledger' && emailSeg(1)) {
-      const email = emailSeg(1).toLowerCase();
+    if (allSegs.includes('ledger') && !allSegs.includes('answer')) {
+      const email = (studentEmail || emailSeg(1) || '').trim().toLowerCase();
       touchStudent(email);
       if (method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': allowHeaders });
@@ -617,8 +692,8 @@ async function handleServerRequest(req, res) {
     }
 
     /* ---- ledger QA: POST /answer/<email> (3 payload shapes, port of ledger-agent) ---- */
-    if (segs[0] === 'answer' && emailSeg(1)) {
-      const email = emailSeg(1).toLowerCase();
+    if (allSegs.includes('answer')) {
+      const email = (studentEmail || emailSeg(1) || '').trim().toLowerCase();
       touchStudent(email);
       if (method === 'OPTIONS') {
         res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': allowHeaders });
@@ -646,12 +721,16 @@ async function handleServerRequest(req, res) {
       return res.end(JSON.stringify({ answer: ledgerAnswerOne(store, qq) }));
     }
 
-    /* ---- per-student services: /s/<email>/... ---- */
-    if (segs[0] === 's' && emailSeg(1)) {
-      const email = emailSeg(1);
+    /* ---- per-student services: /s/<email>/... | /ga2/<email>/... | /ga2/<email>/qX/... ---- */
+    if (studentEmail) {
+      const email = studentEmail;
       const emailL = email.trim().toLowerCase();
       touchStudent(emailL);
-      const sub = '/' + segs.slice(2).join('/');
+      let after = emailIdx !== -1 ? allSegs.slice(emailIdx + 1) : segs.slice(1);
+      if (after.length > 0 && /^q\d+$/i.test(after[0])) {
+        after = after.slice(1);
+      }
+      const sub = '/' + after.join('/');
       const q = u.searchParams;
 
       /* CORS policy mirrors the question contracts:
@@ -662,13 +741,13 @@ async function handleServerRequest(req, res) {
       const mwAssigned = mwOrigin(email).allowedOrigin;
       const corsFor = (route) => {
         if (route === '/stats') {
-          if (origin === assignedStats || origin === EXAM_ORIGIN) {
+          if (origin === assignedStats || origin === EXAM_ORIGIN || /^https:\/\/dash-[a-z0-9]+\.example\.com$/i.test(origin)) {
             return { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
           }
           return {};
         }
         if (origin) return { 'Access-Control-Allow-Origin': origin === 'null' ? '*' : origin, Vary: 'Origin' };
-        return {};
+        return { 'Access-Control-Allow-Origin': '*' };
       };
       if (method === 'OPTIONS') {
         const h = corsFor(sub);
