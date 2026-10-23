@@ -1,5 +1,5 @@
 /* Universal GA3 helper: paste on your logged-in GA3 attempt page.
-   Automates GA3 questions by connecting to your deployed solver backend.
+   Automates GA3 questions using your deployed Vercel API suite.
 
    Q1: q-guess-number-server (Guess your number, 0 marks, binary search or safe probe)
    Q2: q-a2a-durable-delegate-server-v2 (A2A Invoice Agent, 4 marks)
@@ -16,7 +16,7 @@
     OPTIONS.backend ||
     globalThis.TDS_BACKEND ||
     globalThis.GA3_BACKEND ||
-    'https://tds-roe-solver-api-t12026.onrender.com'
+    'https://tds-t3-2026-ga0-ngrok.vercel.app'
   ).replace(/\/+$/, '');
 
   if (location.origin !== 'https://exam.sanand.workers.dev') {
@@ -49,30 +49,20 @@
     return true;
   };
 
-  /* ============ Question-to-Backend URL Mapping ============ */
-  // The endpoints match the HypeMonk/TDS-GA5 reference architecture:
-  // Q2: A2A Base URL -> BACKEND + '/a2a/' or BACKEND + '/' (both discovery & routes supported)
-  // Q3: Mailroom URL -> BACKEND + '/v1/mailroom/actions' (or BACKEND + '/mailroom')
-  // Q4: Incident Base URL -> BACKEND + '/' (routes /v2/incidents...)
-  // Q5: Trading Game -> "played"
-  // Q6: 3D Face Model -> CORS-enabled public GLB URL under 2 MB
-
   const GLB_FALLBACK = OPTIONS.glbUrl || 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF-Binary/Duck.glb';
-
-  const studentPrefix = `${BACKEND}/ga5/${encodeURIComponent(emailL)}`;
 
   const FILL = {
     // Q1: Guess number (optional/experimental - 0 marks)
     'q-guess-number-server': OPTIONS.guessNumber || document.getElementById('q-guess-number-server')?.value || '5000',
 
     // Q2: A2A Invoice Agent (4 marks) - expects Base URL where /.well-known/agent-card.json is discoverable
-    'q-a2a-durable-delegate-server-v2': `${studentPrefix}/a2a/`,
+    'q-a2a-durable-delegate-server-v2': `${BACKEND}/a2a/`,
 
     // Q3: Safe AI Mailroom Agent (4 marks) - expects endpoint for propose & commit
-    'q-taint-aware-agent-executor-server-v2': `${studentPrefix}/mailroom`,
+    'q-taint-aware-agent-executor-server-v2': `${BACKEND}/v1/mailroom/actions`,
 
     // Q4: Observable Incident Triage Agent (4 marks) - expects Base URL exposing /v2/incidents
-    'q-agent-trace-integrity-server-v2': `${studentPrefix}/`,
+    'q-agent-trace-integrity-server-v2': `${BACKEND}/`,
 
     // Q5: Trading game: Humans Only (1 mark) - acknowledgment keyword
     'q-trading-humans-only': 'played',
@@ -99,7 +89,6 @@
     const buttons = [...document.querySelectorAll('.check-answer')];
     for (const btn of buttons) {
       const qid = btn.getAttribute('data-question');
-      // Skip guessing game if user didn't want to use limited guesses (max 3/day)
       if (qid === 'q-guess-number-server' && !OPTIONS.checkGuess) {
         console.log('[ga3] Skipping Q1 check (0 marks, 3 check limit). Set GA3_OPTIONS.checkGuess=true to test.');
         continue;

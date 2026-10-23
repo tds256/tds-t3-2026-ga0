@@ -7,9 +7,21 @@
     { "source": "/ga0/code-interpreter", "destination": "/api/code" },
     { "source": "/q5/code-interpreter", "destination": "/api/code" },
     { "source": "/code-interpreter", "destination": "/api/code" },
+
+    { "source": "/.well-known/agent-card.json", "destination": "/api/ga3_bridge" },
+    { "source": "/.well-known/agent.json", "destination": "/api/ga3_bridge" },
+    { "source": "/a2a/(.*)", "destination": "/api/ga3_bridge" },
+    { "source": "/message:send", "destination": "/api/ga3_bridge" },
+    { "source": "/tasks(.*)", "destination": "/api/ga3_bridge" },
+    { "source": "/v1/mailroom/actions", "destination": "/api/ga3_bridge" },
+    { "source": "/mailroom", "destination": "/api/ga3_bridge" },
+    { "source": "/q9/mailroom", "destination": "/api/ga3_bridge" },
+    { "source": "/v2/incidents(.*)", "destination": "/api/ga3_bridge" },
+
     { "source": "/(.*)", "destination": "/api/index" }
   ],
   "functions": {
-    "api/index.js": { "maxDuration": 60 }
+    "api/index.js": { "maxDuration": 60 },
+    "api/ga3_bridge.py": { "maxDuration": 60 }
   }
 }
