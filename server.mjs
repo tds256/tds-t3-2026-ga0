@@ -429,8 +429,8 @@ async function handleServerRequest(req, res) {
     }
     /* One paste line on the exam page: import('…/solver.js') picks the console
        that matches the quiz you are sitting (ga1 or ga2). */
-    if ((path === '/solver.js' || /^\/solver\/(ga1|ga2)\.js$/.test(path)) && method === 'GET') {
-      const file = path === '/solver.js' ? './solver-dispatch.mjs' : `./solvers/tds-2026-09-${/ga2/.test(path) ? 'ga2' : 'ga1'}-console-universal.js`;
+    if ((path === '/solver.js' || /^\/solver\/(ga1|ga2|ga3)\.js$/.test(path)) && method === 'GET') {
+      const file = path === '/solver.js' ? './solver-dispatch.mjs' : `./solvers/tds-2026-09-${/ga3/.test(path) ? 'ga3' : /ga2/.test(path) ? 'ga2' : 'ga1'}-console-universal.js`;
       let source;
       try { source = await getCachedScript(file); }
       catch { return sendJson(res, 404, { error: 'Unknown solver script.' }, acaostar); }

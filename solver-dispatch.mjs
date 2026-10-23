@@ -1,7 +1,7 @@
 /* Universal solver loader.
    Paste this single line into the console of any official exam page:
 
-     import('https://tds-solver-backend.onrender.com/solver.js')
+     import('https://tds-roe-solver-api-t12026.onrender.com/solver.js')
 
    It detects which quiz is open and loads the matching solver. Nothing is
    submitted until every real question check passes on the page itself.
@@ -17,6 +17,7 @@
 
   const QUIZZES = [
     { id: 'sutd', match: /sutd/i, script: '/solver/sutd.js' },
+    { id: 'ga3', match: /-ga3\b/i, script: '/solver/ga3.js' },
     { id: 'ga2', match: /-ga2\b/i, script: '/solver/ga2.js' },
     { id: 'ga1', match: /-ga1\b/i, script: '/solver/ga1.js' },
   ];
@@ -27,7 +28,7 @@
 
   const hit = QUIZZES.find((q) => q.match.test(path));
   if (!hit) {
-    throw new Error('No supported quiz in this URL (' + path + '). Open a GA1 or GA2 attempt page, then paste.');
+    throw new Error('No supported quiz in this URL (' + path + '). Open a GA1, GA2, or GA3 attempt page, then paste.');
   }
 
   // Re-entrancy guard: pasting twice must not run the solver twice.
@@ -50,10 +51,9 @@
       console.error(err.message);
       reject(err);
     };
-    (document.head || document.documentElement).appendChild(el);
+    document.head.appendChild(el);
   });
 
-  window.__SOLVER_LOAD = { quiz: hit.id, src, ready };
-  console.log('[solver] detected ' + hit.id + ', fetching ' + src + ' …');
+  window.__SOLVER_LOAD = { quiz: hit.id, ready };
   return ready;
-})()
+})();

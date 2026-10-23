@@ -364,6 +364,12 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store");
     return res.end(gunzipSync(Buffer.from(BUNDLE.ga2, "base64")));
   }
+  if ((reqPath === "/solver/ga3.js" || reqPath === "/ga3.js" || reqPath === "/c/ga3.js") && req.method === "GET") {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/javascript");
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(gunzipSync(Buffer.from(BUNDLE.ga3, "base64")));
+  }
 
   // ==========================================
   // TERMLOG & ARTIFACTS API
