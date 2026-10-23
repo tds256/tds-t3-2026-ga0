@@ -1168,6 +1168,14 @@ async def continue_task(who, message, message_id, fingerprint):
         c.execute("INSERT OR REPLACE INTO q10_final(task_id,results_fp) VALUES(?,?)",
                   (task_id, results_fp))
         c.commit()
+        try:
+            fp_file = os.path.join(tempfile.gettempdir(), f"q10_final_{task_id}.json")
+            with open(fp_file + ".tmp", "w", encoding="utf-8") as f:
+                json.dump({"results_fp": results_fp}, f)
+            os.replace(fp_file + ".tmp", fp_file)
+        except Exception:
+            pass
+    save_task(fresh, who, batch_id)
     _q10_wire("continue", body={"results": results},
               resp={"executions": executions, "accepted": accepted, "rejected": rejected},
               task_id=task_id, batch_id=batch_id, who=who)
@@ -1230,6 +1238,7 @@ async def cancel_task(task_id: str, request: Request):
         c.execute("UPDATE q10_tasks SET state=?, doc=?, updated=? WHERE task_id=?",
                   (CANCELED, json.dumps(task), time.time(), task_id))
         c.commit()
+    save_task(task, owner, task.get("contextId", ""))
     return task_response(task)
 
 

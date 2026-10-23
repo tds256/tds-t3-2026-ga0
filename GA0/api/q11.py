@@ -1529,6 +1529,7 @@ async def post_receipt(run_id: str, request: Request):
 
     state["receipts_seen"][receipt_id] = fp
     state["receipt_responses"][receipt_id] = resp
+    INCIDENTS[run_id] = state
     _q11_wire("receipts", run_id=run_id, body=body,
               resp={"status": state.get("status"), "phase": state.get("phase"),
                     "result": (state.get("final_result") or {}).get("status")

@@ -1238,18 +1238,18 @@ def bind_receipts(eval_id, receipts, proposals):
         call_id = r["callId"].strip()
         proposal = by_call.get(call_id)
         if proposal is None:
-            raise HTTPException(status_code=409, detail="receipt callId %s does not belong to evaluation %s" % (call_id, eval_id))
+            raise HTTPException(status_code=400, detail="receipt callId %s does not belong to evaluation %s" % (call_id, eval_id))
         if r.get("dossierId") != proposal["dossierId"]:
-            raise HTTPException(status_code=409, detail="receipt dossierId does not match proposal %s" % call_id)
+            raise HTTPException(status_code=400, detail="receipt dossierId does not match proposal %s" % call_id)
         if r.get("action") != proposal["action"]:
-            raise HTTPException(status_code=409, detail="receipt dossier action does not match proposal %s" % call_id)
+            raise HTTPException(status_code=400, detail="receipt dossier action does not match proposal %s" % call_id)
         if r.get("proposalDigest") != proposal_digest(proposal):
-            raise HTTPException(status_code=409, detail="receipt proposalDigest does not match proposal %s" % call_id)
+            raise HTTPException(status_code=400, detail="receipt proposalDigest does not match proposal %s" % call_id)
         bound.append((r, proposal))
 
     missing = [c for c in by_call if c not in {r["callId"].strip() for r in receipts}]
     if missing:
-        raise HTTPException(status_code=409, detail="commit is missing receipts for: %s" % ", ".join(sorted(missing)))
+        raise HTTPException(status_code=400, detail="commit is missing receipts for: %s" % ", ".join(sorted(missing)))
     return bound
 
 def check_receipt_bindings(eval_id, receipts):
@@ -1313,22 +1313,52 @@ def prune_wire(max_evals: int = 30):
     except Exception as e:
         logger.error("q9 wire prune failed: %s", e)
 
+def get_eval_commit(eval_id: str):
+    f = os.path.join(tempfile.gettempdir(), f"q9_commit_{eval_id}.json")
+    if os.path.exists(f):
+        try:
+            with open(f, "r", encoding="utf-8") as fp:
+                return json.load(fp)
+        except Exception:
+            pass
+    row = _get("q9_v3_commits", "commit_key", "eval:" + eval_id)
+    if row is not None:
+        try:
+            return json.loads(row[1])
+        except Exception:
+            pass
+    return None
+
+def put_eval_commit(eval_id: str, receipts_digest: str, response: dict):
+    rec = {"receiptsDigest": receipts_digest, "response": response}
+    f = os.path.join(tempfile.gettempdir(), f"q9_commit_{eval_id}.json")
+    try:
+        tmp_f = f + ".tmp"
+        with open(tmp_f, "w", encoding="utf-8") as fp:
+            json.dump(rec, fp, ensure_ascii=False)
+        os.replace(tmp_f, f)
+    except Exception:
+        pass
+    _put("INSERT OR REPLACE INTO q9_v3_commits VALUES (?,?)", ("eval:" + eval_id, json.dumps(rec, ensure_ascii=False)))
+
 async def do_commit(body):
     eval_id, input_digest, receipts = validate_commit(body)
 
     eval_data = get_eval(eval_id)
     if eval_data is None:
-        raise HTTPException(status_code=409, detail="unknown evaluationId")
+        raise HTTPException(status_code=404, detail=f"Unknown evaluationId '{eval_id}'")
     _stored_conflict_key, stored_resp = eval_data
     # The digest slot now holds the broad conflict key, so compare the client's
     # inputDigest against digest(dossiers) as echoed back in the propose response.
     if stored_resp.get("inputDigest") != input_digest:
         raise HTTPException(status_code=409, detail="inputDigest does not match evaluation")
 
-    commit_key = digest({"evaluationId": eval_id, "inputDigest": input_digest, "receipts": receipts})
-    cached_commit = get_commit(commit_key)
-    if cached_commit is not None:
-        return cached_commit
+    receipts_digest = digest(receipts)
+    prior_commit = get_eval_commit(eval_id)
+    if prior_commit is not None:
+        if prior_commit.get("receiptsDigest") == receipts_digest:
+            return prior_commit["response"]
+        raise HTTPException(status_code=409, detail=f"evaluationId '{eval_id}' was already committed with different receipts")
 
     proposals = stored_resp.get("proposals", [])
     # Signatures first, as the question requires: a binding check alone passes a
@@ -1360,7 +1390,8 @@ async def do_commit(body):
         "inputDigest": input_digest,
         "outcomes": outcomes,
     }
-    put_commit(commit_key, response)
+    put_eval_commit(eval_id, receipts_digest, response)
+    put_commit(digest({"evaluationId": eval_id, "inputDigest": input_digest, "receipts": receipts}), response)
     persist_receipt_bindings(eval_id, receipts)
     put_commit_wire(eval_id, {"receipts": receipts, "outcomes": outcomes})
     return response
@@ -1392,10 +1423,11 @@ async def mailroom(request: Request):
         # both a tampered commit and a tampered propose. Only a genuinely
         # unknown evaluation gets the schema answer (400).
         eval_id = body.get("evaluationId")
-        if isinstance(eval_id, str) and eval_id.strip() and get_eval(eval_id.strip()) is not None:
-            raise HTTPException(status_code=409, detail="evaluationId already used with different content")
-        if operation == "commit":
-            raise HTTPException(status_code=409, detail="profile does not match evaluation")
+        if isinstance(eval_id, str) and eval_id.strip():
+            if get_eval(eval_id.strip()) is not None:
+                raise HTTPException(status_code=409, detail="evaluationId already used with different content")
+            if operation == "commit":
+                raise HTTPException(status_code=404, detail="Unknown evaluationId")
         raise HTTPException(status_code=400, detail="unsupported profile")
 
     if operation == "propose":
