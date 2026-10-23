@@ -59,18 +59,20 @@
 
   const GLB_FALLBACK = OPTIONS.glbUrl || 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF-Binary/Duck.glb';
 
+  const studentPrefix = `${BACKEND}/ga5/${encodeURIComponent(emailL)}`;
+
   const FILL = {
     // Q1: Guess number (optional/experimental - 0 marks)
     'q-guess-number-server': OPTIONS.guessNumber || document.getElementById('q-guess-number-server')?.value || '5000',
 
     // Q2: A2A Invoice Agent (4 marks) - expects Base URL where /.well-known/agent-card.json is discoverable
-    'q-a2a-durable-delegate-server-v2': `${BACKEND}/a2a/`,
+    'q-a2a-durable-delegate-server-v2': `${studentPrefix}/a2a/`,
 
     // Q3: Safe AI Mailroom Agent (4 marks) - expects endpoint for propose & commit
-    'q-taint-aware-agent-executor-server-v2': `${BACKEND}/v1/mailroom/actions`,
+    'q-taint-aware-agent-executor-server-v2': `${studentPrefix}/mailroom`,
 
     // Q4: Observable Incident Triage Agent (4 marks) - expects Base URL exposing /v2/incidents
-    'q-agent-trace-integrity-server-v2': `${BACKEND}/`,
+    'q-agent-trace-integrity-server-v2': `${studentPrefix}/`,
 
     // Q5: Trading game: Humans Only (1 mark) - acknowledgment keyword
     'q-trading-humans-only': 'played',
