@@ -1,3 +1,4 @@
+import tempfile
 """Q10 - A2A 1.0 Durable Delegate (Invoice Action Agent).
 
 Self-contained, deterministic, and API-key-free. The graded invoice packages
@@ -192,29 +193,60 @@ def db():
     return _conn
 
 
+_MEM_TASKS = {}
+
 def load_task(task_id):
+    if task_id in _MEM_TASKS:
+        t, p = _MEM_TASKS[task_id]
+        return json.loads(json.dumps(t)), p
+    task_file = os.path.join(tempfile.gettempdir(), f"q10_task_{task_id}.json")
+    if os.path.exists(task_file):
+        try:
+            with open(task_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                _MEM_TASKS[task_id] = (data["doc"], data["principal"])
+                return data["doc"], data["principal"]
+        except Exception:
+            pass
     with _db_lock:
-        row = db().execute(
-            "SELECT doc, principal FROM q10_tasks WHERE task_id=?", (task_id,)
-        ).fetchone()
-    if not row:
-        return None, None
-    return json.loads(row["doc"]), row["principal"]
+        try:
+            row = db().execute(
+                "SELECT doc, principal FROM q10_tasks WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if row:
+                doc = json.loads(row["doc"])
+                _MEM_TASKS[task_id] = (doc, row["principal"])
+                return doc, row["principal"]
+        except Exception:
+            pass
+    return None, None
 
 
 def save_task(task, principal, batch_id):
     now = time.time()
+    _MEM_TASKS[task["id"]] = (task, principal)
+    task_file = os.path.join(tempfile.gettempdir(), f"q10_task_{task['id']}.json")
+    try:
+        tmp_f = task_file + ".tmp"
+        with open(tmp_f, "w", encoding="utf-8") as f:
+            json.dump({"doc": task, "principal": principal, "batch_id": batch_id}, f)
+        os.replace(tmp_f, task_file)
+    except Exception:
+        pass
     with _db_lock:
-        c = db()
-        c.execute(
-            "INSERT INTO q10_tasks(task_id,principal,context_id,batch_id,state,doc,created,updated)"
-            " VALUES(?,?,?,?,?,?,?,?)"
-            " ON CONFLICT(task_id) DO UPDATE SET state=excluded.state,"
-            " doc=excluded.doc, updated=excluded.updated",
-            (task["id"], principal, task["contextId"], batch_id,
-             task["status"]["state"], json.dumps(task), now, now),
-        )
-        c.commit()
+        try:
+            c = db()
+            c.execute(
+                "INSERT INTO q10_tasks(task_id,principal,context_id,batch_id,state,doc,created,updated)"
+                " VALUES(?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(task_id) DO UPDATE SET state=excluded.state,"
+                " doc=excluded.doc, updated=excluded.updated",
+                (task["id"], principal, task["contextId"], batch_id,
+                 task["status"]["state"], json.dumps(task), now, now),
+            )
+            c.commit()
+        except Exception:
+            pass
 
 
 # ------------------------------------------------------------- helpers

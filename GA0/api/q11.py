@@ -41,7 +41,47 @@ except Exception:  # pragma: no cover
 router = APIRouter()
 
 # runId -> full persisted state
-INCIDENTS: Dict[str, Dict[str, Any]] = {}
+import tempfile
+
+class PersistentIncidents(dict):
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        fpath = os.path.join(tempfile.gettempdir(), f"q11_incident_{key}.json")
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    val = json.load(f)
+                    self[key] = val
+                    return val
+            except Exception:
+                pass
+        return default
+
+    def __getitem__(self, key):
+        val = self.get(key)
+        if val is None:
+            raise KeyError(key)
+        return val
+
+    def __contains__(self, key):
+        if dict.__contains__(self, key):
+            return True
+        fpath = os.path.join(tempfile.gettempdir(), f"q11_incident_{key}.json")
+        return os.path.exists(fpath)
+
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, key, value)
+        fpath = os.path.join(tempfile.gettempdir(), f"q11_incident_{key}.json")
+        try:
+            tmp = fpath + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(value, f)
+            os.replace(tmp, fpath)
+        except Exception:
+            pass
+
+INCIDENTS: Dict[str, Dict[str, Any]] = PersistentIncidents()
 
 PROFILE = "ga5-incident-agent/v2"
 DEFAULT_APPROVAL_TOOLS = ["rollback_deployment", "disable_feature"]
